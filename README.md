@@ -1,16 +1,16 @@
 # DevAgent
 
-多模型协作开发智能体 — **DeepSeek-V4-Pro**（大脑）+ **Qwen-Plus**（审查）
+多智能体协作代码助手 — **规划Agent** 拆解任务、**编码Agent** 生成代码、**审查Agent** 把控质量
 
-根据自然语言需求自动生成代码、修复 Bug、审查代码、生成文档。
+三个 Agent 各司其职、协同工作，让复杂开发任务变得简单。
 
 ---
 
 ## 核心特性
 
-- **多模型协作**: DeepSeek 负责规划与生成，Qwen 负责审查，质量双检
-- **四层架构**: 大脑（规划/仲裁）→ 手脚（编码/审查）→ 工具 → 记忆
-- **双重接口**: CLI 交互 + FastAPI REST API
+- **多智能体协作**: 规划Agent、编码Agent、审查Agent 分工明确，端到端协作
+- **自然语言驱动**: 用日常语言描述需求，Agent 们自动完成开发
+- **双重接口**: CLI 交互 + Web 交互页面
 - **持久记忆**: 支持 SQLite / PostgreSQL + Milvus / ChromaDB 向量存储
 - **工具系统**: 内置 Git、文件系统、Shell 等开发工具
 
@@ -42,18 +42,20 @@ MEMORY_MILVUS_PORT=19530
 
 ---
 
-## CLI 使用
+## 快速开始
 
-### 执行开发任务
+### Web 交互页面（推荐）
+
+```bash
+dev-agent web
+```
+
+打开浏览器访问 `http://localhost:8000`
+
+### CLI 使用
 
 ```bash
 dev-agent run "用 Python 写一个函数，返回列表的最大值和最小值之差"
-```
-
-### 代码审查
-
-```bash
-dev-agent review "要审查的代码"
 ```
 
 ### 启动 API 服务
@@ -64,24 +66,28 @@ dev-agent serve
 
 ---
 
-## API 使用
+## 多智能体架构
 
-启动服务后访问 `http://localhost:8000/docs`
-
-### 执行任务
-
-```bash
-curl -X POST http://localhost:8000/execute \
-  -H "Content-Type: application/json" \
-  -d '{"request": "创建 FastAPI 应用，包含 /health 端点"}'
 ```
-
-### 代码审查
-
-```bash
-curl -X POST http://localhost:8000/review \
-  -H "Content-Type: application/json" \
-  -d '{"code": "def foo(): pass", "task_description": "简单函数"}'
+用户需求
+    │
+    ▼
+┌─────────────┐
+│  规划Agent  │ ← 分析需求，制定执行计划
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  编码Agent  │ ← 根据计划生成代码
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  审查Agent  │ ← 检查代码质量，提出改进建议
+└──────┬──────┘
+       │
+       ▼
+   最终交付
 ```
 
 ---
@@ -90,8 +96,8 @@ curl -X POST http://localhost:8000/review \
 
 ```
 src/dev_agent/
-├── brain/           # 大脑层：规划器(Planner)、仲裁器(Arbitrator)
-├── workers/         # 手脚层：代码生成器(CodeWorker)、审查器(ReviewWorker)
+├── brain/           # 规划Agent(Planner)、仲裁Agent(Arbitrator)
+├── workers/         # 编码Agent(CodeWorker)、审查Agent(ReviewWorker)
 ├── tools/           # 工具层：Git、文件系统、Shell 等
 ├── memory/          # 记忆层：短时记忆、结构化记忆、长期记忆
 ├── api.py           # FastAPI 入口

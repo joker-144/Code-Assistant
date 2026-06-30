@@ -1,0 +1,22 @@
+{
+  "name": "self-improving-agent",
+  "version": "3.0.21",
+  "agent": "planner",
+  "source": "skillhub",
+  "source_author": "pskoett",
+  "description": "自我改进智能体 — 捕获经验教训、错误和纠正，实现持续改进。适用场景：命令/操作失败、用户纠正、发现更好方法。",
+  "capabilities": [
+    "错误记录与分析",
+    "学习经验积累",
+    "知识过时检测",
+    "最佳实践提取",
+    "需求分析",
+    "任务拆解与规划"
+  ],
+  "tools": [
+    "web_search",
+    "web_fetch",
+    "file_read",
+    "file_write"
+  ]
+}

@@ -12,6 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import requests
+from bs4 import BeautifulSoup
+
 
 @dataclass
 class ToolResult:
@@ -257,6 +260,78 @@ class GitTool:
         return self._run_git("checkout", "-b", name)
 
 
+class WebTool:
+    """联网工具 — WebSearch/WebFetch"""
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "DevAgent/1.0 (Python Requests)"
+        })
+
+    def search(self, query: str, num_results: int = 5) -> ToolResult:
+        """搜索网页获取信息"""
+        try:
+            # 使用 DuckDuckGo 搜索（无需 API Key）
+            url = "https://html.duckduckgo.com/html/"
+            params = {"q": query}
+
+            response = self.session.post(url, data=params, timeout=10)
+            response.raise_for_status()
+
+            # 解析结果
+            content = response.text
+            # 简单提取搜索结果
+            results = []
+            lines = content.split("\n")
+            for line in lines:
+                if "<a href=" in line and "uddg=" in line:
+                    # 提取链接和标题
+                    import re
+                    match = re.search(r'href="(.*?)".*?>(.*?)</a>', line)
+                    if match:
+                        url_part, title = match.groups()
+                        title = re.sub(r'<[^>]+>', '', title).strip()
+                        if title and url_part:
+                            results.append(f"- {title}: {url_part}")
+
+            if not results:
+                return ToolResult(success=True, data="未找到相关结果")
+
+            return ToolResult(
+                success=True,
+                data=f"搜索「{query}」结果：\n" + "\n".join(results[:num_results])
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"搜索失败: {str(e)}")
+
+    def fetch(self, url: str) -> ToolResult:
+        """获取网页内容"""
+        try:
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+
+            # 提取纯文本内容
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # 移除脚本和样式
+            for script in soup(["script", "style"]):
+                script.decompose()
+
+            text = soup.get_text(separator="\n", strip=True)
+            # 清理空行
+            lines = [line for line in text.split("\n") if line.strip()]
+            content = "\n".join(lines[:100])  # 限制行数
+
+            return ToolResult(
+                success=True,
+                data=content if content else "页面内容为空",
+                metadata={"url": url, "title": soup.title.string if soup.title else ""}
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"获取失败: {str(e)}")
+
+
 class ToolRegistry:
     """工具注册表 — 统一工具访问入口"""
 
@@ -264,6 +339,7 @@ class ToolRegistry:
         self.file = FileTool(workspace)
         self.shell = ShellTool(workspace)
         self.git = GitTool(workspace)
+        self.web = WebTool()
 
     def get_tools_description(self) -> str:
         """获取工具列表描述（供 LLM 使用）"""
@@ -287,4 +363,8 @@ class ToolRegistry:
 - git.diff() → 查看差异
 - git.log(10) → 查看历史
 - git.commit("msg") → 提交变更
+
+### 联网操作 (web)
+- web.search("query") → 搜索网页获取信息
+- web.fetch("url") → 获取网页内容
 """

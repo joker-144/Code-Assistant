@@ -21,6 +21,7 @@ from dev_agent.memory.long_term import LongTermMemory
 from dev_agent.memory.short_term import ShortTermMemory
 from dev_agent.memory.structured import StructuredMemory
 from dev_agent.tools.tool_system import ToolRegistry
+from dev_agent.skill_system import SkillLoader
 from dev_agent.workers.code_worker import CodeWorker
 from dev_agent.workers.qwen_worker import ReviewWorker
 
@@ -43,6 +44,12 @@ class Orchestrator:
 
         # 工具
         self.tools = ToolRegistry(self.workspace)
+
+        # 技能系统
+        self.skill_loader = SkillLoader()
+        self.planner_skill = self.skill_loader.get_skill_prompt("planner")
+        self.coder_skill = self.skill_loader.get_skill_prompt("coder")
+        self.reviewer_skill = self.skill_loader.get_skill_prompt("reviewer")
 
         # 记忆系统
         self.short_memory = ShortTermMemory(
