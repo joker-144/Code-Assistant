@@ -7,7 +7,7 @@
   - file_index: 代码库文件索引（含 Embedding 向量）
   - lessons: 经验教训
 
-从旧的"Milvus + PostgreSQL + SQLite"三套系统简化为单一 SQLite + 本地 Embedding。
+从旧的"Milvus + PostgreSQL + SQLite"三套系统简化为单一 SQLite + 智谱云端 Embedding。
 """
 from __future__ import annotations
 
@@ -68,7 +68,11 @@ CREATE INDEX IF NOT EXISTS idx_file_index_path ON file_index(file_path);
 
 
 class MemoryStore:
-    """SQLite 统一存储 — 线程安全的单例"""
+    """SQLite 统一存储 — 线程安全的单例
+
+    注意：单例以第一次初始化的 db_path 为准。
+    如需切换数据库（如测试），调用 reset_store() 重置单例。
+    """
 
     _instance: Optional["MemoryStore"] = None
     _lock = threading.Lock()
@@ -84,7 +88,7 @@ class MemoryStore:
         if self._initialized:
             return
         config = get_config()
-        self.db_path = db_path or config.memory.sqlite_path
+        self.db_path = db_path or config.memory_sqlite_path
         # 确保目录存在
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -214,3 +218,14 @@ class MemoryStore:
 def get_store() -> MemoryStore:
     """获取 MemoryStore 单例"""
     return MemoryStore()
+
+
+def reset_store():
+    """重置 MemoryStore 单例（用于测试或切换数据库）"""
+    with MemoryStore._lock:
+        if MemoryStore._instance is not None:
+            try:
+                MemoryStore._instance._conn.close()
+            except Exception:
+                pass
+        MemoryStore._instance = None

@@ -5,7 +5,7 @@ AgentLoop — 核心智能体循环
 
 工作循环:
   1. 构建 LLM 输入（system prompt + 上下文 + 工具定义）
-  2. 调用 LLM（支持 function calling）
+  2. 调用 LLM（支持 function calling，异步不阻塞）
   3. 若 LLM 请求工具调用 → 执行工具 → 结果加入上下文 → 继续循环
   4. 若 LLM 返回纯文本 → 任务完成，结束循环
 
@@ -15,6 +15,7 @@ LLM 自主决定：是否需要读文件？是否需要搜索代码？是否需�
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Optional
@@ -23,6 +24,7 @@ from dev_agent.agent.system_prompt import get_system_prompt
 from dev_agent.config import get_config
 from dev_agent.context.manager import ContextManager
 from dev_agent.llm.client import LLMClient
+from dev_agent.memory.store import get_store
 from dev_agent.tools.engine import ToolEngine
 
 
@@ -40,7 +42,11 @@ class LoopEvent:
 
 
 class AgentLoop:
-    """核心 Agent 循环 — LLM 自主决策执行路径"""
+    """核心 Agent 循环 — LLM 自主决策执行路径
+
+    每个实例维护独立的对话上下文，支持多轮对话。
+    对话历史持久化到 SQLite（通过 MemoryStore）。
+    """
 
     def __init__(
         self,
@@ -49,6 +55,7 @@ class AgentLoop:
         tools: Optional[ToolEngine] = None,
         context: Optional[ContextManager] = None,
         system_prompt: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ):
         config = get_config()
         self.workspace = workspace or config.workspace
@@ -59,7 +66,22 @@ class AgentLoop:
             workspace=self.workspace,
             system_prompt=self.system_prompt,
         )
-        self.max_tool_rounds = config.llm.max_tool_rounds
+        self.max_tool_rounds = config.llm_chat_max_tool_rounds
+        self.conversation_id = conversation_id
+
+        # 初始化对话持久化
+        self._init_conversation()
+
+    def _init_conversation(self):
+        """初始化对话记录到 SQLite"""
+        try:
+            store = get_store()
+            if self.conversation_id is None:
+                self.conversation_id = str(uuid.uuid4())
+            store.create_conversation(self.conversation_id)
+        except Exception:
+            # 持久化失败不影响核心功能
+            pass
 
     async def run(self, user_input: str) -> AsyncIterator[LoopEvent]:
         """运行 Agent 循环，流式输出事件
@@ -71,21 +93,22 @@ class AgentLoop:
             LoopEvent: 工具调用、工具结果、文本回复等事件
         """
         self.context.add_user_message(user_input)
+        self._persist_message("user", user_input)
 
         rounds = 0
         while rounds < self.max_tool_rounds:
             rounds += 1
 
-            # 1. 构建 LLM 输入
+            # 1. 检查 token 预算，必要时压缩（先压缩再构建，避免 messages 过时）
+            await self.context.maybe_compress(self.llm)
+
+            # 2. 构建 LLM 输入
             messages = self.context.build_messages()
             tool_schemas = self.tools.get_schemas()
 
-            # 检查 token 预算，必要时压缩
-            await self.context.maybe_compress(self.llm)
-
-            # 2. 调用 LLM（支持 function calling）
+            # 3. 调用 LLM（异步，不阻塞事件循环）
             try:
-                response = self.llm.chat_with_tools(
+                response = await self.llm.achat_with_tools(
                     messages=messages,
                     tools=tool_schemas,
                 )
@@ -108,6 +131,7 @@ class AgentLoop:
                     for call in response.tool_calls
                 ]
                 self.context.add_assistant_message(response.content, tool_calls_openai)
+                self._persist_message("assistant", response.content, tool_calls_openai)
 
                 # 4. 逐个执行工具
                 for call in response.tool_calls:
@@ -122,6 +146,11 @@ class AgentLoop:
 
                     # 将结果加入上下文
                     self.context.add_tool_result(call.id, call.name, result.summary)
+                    self._persist_message(
+                        "tool", result.summary,
+                        tool_call_id=call.id,
+                        tool_name=call.name,
+                    )
 
                     yield LoopEvent(
                         type="tool_result",
@@ -134,6 +163,7 @@ class AgentLoop:
             else:
                 # 5. LLM 返回最终文本回复，循环结束
                 self.context.add_assistant_message(response.content)
+                self._persist_message("assistant", response.content)
                 yield LoopEvent(type="text", content=response.content)
                 yield LoopEvent(type="done")
                 return
@@ -144,12 +174,43 @@ class AgentLoop:
             content=f"已达到最大工具调用轮数 ({self.max_tool_rounds})，强制停止",
         )
 
+    def _persist_message(
+        self,
+        role: str,
+        content: str,
+        tool_calls: list[dict] = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ):
+        """持久化消息到 SQLite（失败不影响主流程）"""
+        try:
+            store = get_store()
+            tool_args = json.dumps(tool_calls, ensure_ascii=False) if tool_calls else ""
+            store.add_message(
+                conversation_id=self.conversation_id,
+                role=role,
+                content=content,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                tool_args=tool_args,
+            )
+        except Exception:
+            pass
+
     def _format_tool_call(self, name: str, args: dict) -> str:
         """格式化工具调用用于展示"""
         args_str = ", ".join(f"{k}={v!r}" for k, v in args.items())
         return f"[工具 {name}]({args_str})"
 
 
-def create_agent(workspace: Optional[Path] = None) -> AgentLoop:
-    """创建 Agent 实例（工厂函数）"""
-    return AgentLoop(workspace=workspace)
+def create_agent(
+    workspace: Optional[Path] = None,
+    conversation_id: Optional[str] = None,
+) -> AgentLoop:
+    """创建 Agent 实例（工厂函数）
+
+    Args:
+        workspace: 工作目录
+        conversation_id: 对话 ID（传入已有 ID 可恢复上下文，但上下文本身在内存中）
+    """
+    return AgentLoop(workspace=workspace, conversation_id=conversation_id)

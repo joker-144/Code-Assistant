@@ -8,3 +8,8 @@ workspace/
 *.egg-info/
 dist/
 build/
+
+# Node.js
+node_modules/
+web/dist/
+web/.npm-cache/

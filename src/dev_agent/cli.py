@@ -21,7 +21,6 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
 
 from dev_agent.config import get_config
 
@@ -138,9 +137,10 @@ def _show_tokens(agent):
     max_tokens = config.max_context_tokens
     percentage = (tokens / max_tokens) * 100 if max_tokens > 0 else 0
 
+    color = "green" if percentage < 70 else "yellow" if percentage < 90 else "red"
     console.print(Panel(
         f"当前上下文 token: [cyan]{tokens:,}[/cyan] / {max_tokens:,}\n"
-        f"使用率: [{'green' if percentage < 70 else 'yellow' if percentage < 90 else 'red'}]{percentage:.1f}%[/]",
+        f"使用率: [{color}]{percentage:.1f}%[/]",
         title="Token 使用",
         border_style="cyan",
     ))
@@ -150,10 +150,10 @@ def _run_index():
     """触发项目索引"""
     from dev_agent.context.index import ProjectIndex
 
-    console.print("[bold cyan]开始索引项目代码库...[/bold cyan]")
+    console.print("[bold cyan]开始索引项目代码库...[/bold cyan] [dim](智谱云端 Embedding-3)[/dim]")
     try:
         project_index = ProjectIndex(Path.cwd())
-        with console.status("[cyan]索引中（首次运行需下载 Embedding 模型 ~100MB）...[/cyan]"):
+        with console.status("[cyan]索引中（调用智谱云端 API）...[/cyan]"):
             stats = project_index.index_project()
 
         console.print(Panel(
@@ -228,12 +228,12 @@ def index(
     """
     from dev_agent.context.index import ProjectIndex
 
-    console.print("[bold cyan]开始索引项目代码库...[/bold cyan]")
+    console.print("[bold cyan]开始索引项目代码库...[/bold cyan] [dim](智谱云端 Embedding-3)[/dim]")
     console.print(f"[dim]工作区: {Path.cwd()}[/dim]")
 
     try:
         project_index = ProjectIndex(Path.cwd())
-        with console.status("[cyan]索引中（首次运行需下载 Embedding 模型 ~100MB）...[/cyan]"):
+        with console.status("[cyan]索引中（调用智谱云端 API）...[/cyan]"):
             stats = project_index.index_project(force=force)
 
         console.print(Panel(

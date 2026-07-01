@@ -6,7 +6,7 @@ Shell 命令执行工具 — run_command
 """
 from __future__ import annotations
 
-import subprocess
+import asyncio
 from pathlib import Path
 
 from dev_agent.tools.engine import ToolResult
@@ -48,29 +48,31 @@ class ShellTool:
                 )
 
         try:
-            result = subprocess.run(
+            proc = await asyncio.create_subprocess_shell(
                 command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.workspace),
             )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return ToolResult(success=False, error=f"命令超时 ({timeout}s)")
 
-            output = result.stdout
-            if result.stderr:
-                output += "\n[STDERR]\n" + result.stderr
+            output = stdout.decode("utf-8", errors="replace")
+            if stderr:
+                output += "\n[STDERR]\n" + stderr.decode("utf-8", errors="replace")
 
             # 输出截断
             if len(output) > 10000:
                 output = output[:10000] + "\n... (输出已截断)"
 
             return ToolResult(
-                success=result.returncode == 0,
+                success=proc.returncode == 0,
                 data=output,
-                metadata={"exit_code": result.returncode},
+                metadata={"exit_code": proc.returncode},
             )
-        except subprocess.TimeoutExpired:
-            return ToolResult(success=False, error=f"命令超时 ({timeout}s)")
         except Exception as e:
             return ToolResult(success=False, error=str(e))

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +23,7 @@ class SearchTool:
 
     @property
     def index(self) -> ProjectIndex:
-        """延迟加载 ProjectIndex（首次使用时初始化 Embedding 模型）"""
+        """延迟加载 ProjectIndex（首次使用时初始化智谱 Embedder）"""
         if self._index is None:
             self._index = ProjectIndex(self.workspace)
         return self._index
@@ -35,7 +36,8 @@ class SearchTool:
             top_k: 返回结果数量
         """
         try:
-            results = self.index.search(query, top_k=top_k)
+            # 用 to_thread 包装避免同步网络请求阻塞事件循环
+            results = await asyncio.to_thread(self.index.search, query, top_k=top_k)
 
             if not results:
                 return ToolResult(

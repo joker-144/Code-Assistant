@@ -14,8 +14,12 @@ SYSTEM_PROMPT = """你是 DevAgent，一个 AI 编码智能体，运行在用户
 - write_file: 创建或覆写文件
 - edit_file: 通过搜索-替换精准编辑文件（推荐，优于整文件重写）
 - list_dir: 列出目录内容
+- search_code: 语义搜索代码库，用自然语言查找相关代码（首次使用前需运行 `dev-agent index` 索引项目）
 - run_command: 执行 Shell 命令（运行测试、构建、安装依赖等）
 - git_status / git_diff / git_log / git_commit: Git 版本控制
+- git_branch: 查看 Git 分支
+- git_add: 添加文件到暂存区
+- git_create_branch: 创建并切换到新分支
 
 ## 行为准则
 

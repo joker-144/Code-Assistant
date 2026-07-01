@@ -72,6 +72,9 @@ class ToolEngine:
         self.register("git_diff", git.git_diff, GIT_DIFF_SCHEMA)
         self.register("git_log", git.git_log, GIT_LOG_SCHEMA)
         self.register("git_commit", git.git_commit, GIT_COMMIT_SCHEMA)
+        self.register("git_branch", git.git_branch, GIT_BRANCH_SCHEMA)
+        self.register("git_add", git.git_add, GIT_ADD_SCHEMA)
+        self.register("git_create_branch", git.git_create_branch, GIT_CREATE_BRANCH_SCHEMA)
 
     def register(self, name: str, func: Callable[..., Awaitable[ToolResult]], schema: dict[str, Any]):
         """注册工具"""
@@ -262,6 +265,44 @@ GIT_COMMIT_SCHEMA = {
                 "message": {"type": "string", "description": "提交信息"},
             },
             "required": ["message"],
+        },
+    },
+}
+
+GIT_BRANCH_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "git_branch",
+        "description": "查看所有 Git 分支。",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+GIT_ADD_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "git_add",
+        "description": "将文件添加到 Git 暂存区。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "要添加的文件路径，默认为当前目录所有变更", "default": "."},
+            },
+        },
+    },
+}
+
+GIT_CREATE_BRANCH_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "git_create_branch",
+        "description": "创建并切换到新的 Git 分支。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "新分支名称"},
+            },
+            "required": ["name"],
         },
     },
 }

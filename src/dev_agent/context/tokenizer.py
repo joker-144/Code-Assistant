@@ -54,7 +54,6 @@ def count_messages_tokens(messages: list[dict], model: str = "deepseek-chat") ->
                 total += count_tokens(value, model)
             elif isinstance(value, list):
                 # tool_calls 等结构
-                import json
                 total += count_tokens(json.dumps(value, ensure_ascii=False), model)
     total += 2  # 结尾辅助 token
     return total
