@@ -1,0 +1,76 @@
+"""
+Shell 命令执行工具 — run_command
+
+针对 Windows PowerShell 环境适配。
+危险命令通过黑名单拦截，超时自动终止。
+"""
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from dev_agent.tools.engine import ToolResult
+
+
+class ShellTool:
+    """Shell 命令执行工具"""
+
+    # 危险命令黑名单（跨平台）
+    DANGEROUS_COMMANDS = [
+        "rm -rf /",
+        "rm -rf --no-preserve-root",
+        "dd if=",
+        "mkfs",
+        ":(){ :|:& };:",  # fork bomb
+        "> /dev/sda",
+        "format c:",
+        "del /f /s /q c:\\",
+        "rd /s /q c:\\",
+    ]
+
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+
+    async def run_command(self, command: str, timeout: int = 60) -> ToolResult:
+        """执行 Shell 命令
+
+        Args:
+            command: 要执行的命令
+            timeout: 超时秒数
+        """
+        # 安全检查
+        cmd_lower = command.lower()
+        for dangerous in self.DANGEROUS_COMMANDS:
+            if dangerous in cmd_lower:
+                return ToolResult(
+                    success=False,
+                    error=f"拒绝执行危险命令（匹配: {dangerous}）",
+                )
+
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(self.workspace),
+            )
+
+            output = result.stdout
+            if result.stderr:
+                output += "\n[STDERR]\n" + result.stderr
+
+            # 输出截断
+            if len(output) > 10000:
+                output = output[:10000] + "\n... (输出已截断)"
+
+            return ToolResult(
+                success=result.returncode == 0,
+                data=output,
+                metadata={"exit_code": result.returncode},
+            )
+        except subprocess.TimeoutExpired:
+            return ToolResult(success=False, error=f"命令超时 ({timeout}s)")
+        except Exception as e:
+            return ToolResult(success=False, error=str(e))

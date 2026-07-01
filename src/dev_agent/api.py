@@ -1,53 +1,60 @@
 """
 API 入口 — 基于 FastAPI
-提供 REST API 和 WebSocket 接口
+提供 SSE 流式对话 + 对话管理 + 项目索引 + 记忆统计接口
+
+同时托管 web/index.html 静态界面，访问根路径 / 即可使用。
 """
 from __future__ import annotations
 
+import json
+import uuid
+from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-
-from dev_agent.orchestrator import get_orchestrator
 
 app = FastAPI(
     title="DevAgent API",
-    description="多模型协作开发智能体 — DeepSeek-V4-Pro + Qwen-Plus",
-    version="0.1.0",
+    description="AI 编码智能体 — Agent + 工具集范式",
+    version="0.4.0",
 )
+
+# 静态 Web 界面托管
+WEB_DIR = Path(__file__).parent.parent.parent / "web"
 
 
 # ── 请求/响应模型 ──
 
-class ExecuteRequest(BaseModel):
-    request: str = Field(..., description="开发需求描述", min_length=1)
-    request_type: str = Field(default="code_gen", description="任务类型: code_gen | code_fix")
-
-
-class ReviewRequest(BaseModel):
-    code: str = Field(..., description="要审查的代码")
-    task_description: str = Field(default="", description="原始需求描述")
-
-
-class GenerateDocsRequest(BaseModel):
-    code: str = Field(..., description="要生成文档的代码")
-
-
-class ExecuteResponse(BaseModel):
-    task_id: str
-    overall_approach: str
-    sub_tasks: list[dict]
-    duration_seconds: float
-    status: str = "completed"
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="用户消息", min_length=1)
 
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    version: str = "0.1.0"
+    version: str = "0.4.0"
 
 
-# ── API 路由 ──
+class ConversationCreate(BaseModel):
+    title: str = ""
+
+
+class IndexRequest(BaseModel):
+    force: bool = False
+
+
+# ── 基础接口 ──
+
+@app.get("/")
+async def root():
+    """Web 界面"""
+    index_path = WEB_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    raise HTTPException(404, "Web 界面未找到")
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -55,81 +62,98 @@ async def health():
     return HealthResponse()
 
 
-@app.post("/execute", response_model=ExecuteResponse)
-async def execute(req: ExecuteRequest):
-    """
-    执行开发任务
+# ── 对话接口 ──
 
-    输入自然语言需求，返回执行计划 + 结果
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE 流式输出 — 实时返回 Agent 的思考和操作
+
+    事件类型:
+      - event: tool_start   工具调用开始
+      - event: tool_result  工具执行结果
+      - event: text         Agent 文本回复
+      - event: error        错误
+      - event: done         完成
     """
+    from dev_agent.agent.loop import create_agent
+
+    agent = create_agent(workspace=Path.cwd())
+
+    async def event_stream():
+        try:
+            async for event in agent.run(req.message):
+                if event.type == "tool_start":
+                    yield f"event: tool_start\ndata: {json.dumps({'tool': event.tool_name, 'args': event.tool_args, 'content': event.content}, ensure_ascii=False)}\n\n"
+                elif event.type == "tool_result":
+                    yield f"event: tool_result\ndata: {json.dumps({'tool': event.tool_name, 'content': event.content}, ensure_ascii=False)}\n\n"
+                elif event.type == "text":
+                    yield f"event: text\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
+                elif event.type == "error":
+                    yield f"event: error\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
+                elif event.type == "done":
+                    yield f"event: done\ndata: {{}}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'content': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── 对话管理接口 ──
+
+@app.post("/conversations")
+async def create_conversation(req: ConversationCreate):
+    """创建新对话"""
+    from dev_agent.memory.store import get_store
+
+    store = get_store()
+    conv_id = str(uuid.uuid4())
+    store.create_conversation(conv_id, req.title)
+    return {"id": conv_id, "title": req.title}
+
+
+@app.get("/conversations/{conversation_id}/messages")
+async def get_messages(conversation_id: str, limit: int = 100):
+    """获取对话消息列表"""
+    from dev_agent.memory.store import get_store
+
+    store = get_store()
+    messages = store.get_messages(conversation_id, limit=limit)
+    return {"conversation_id": conversation_id, "messages": messages}
+
+
+# ── 项目索引接口 ──
+
+@app.post("/index")
+async def index_project(req: IndexRequest):
+    """索引项目代码库（用于 search_code 语义搜索）
+
+    此为同步阻塞接口，索引完成后返回统计。
+    首次运行需下载 Embedding 模型（~100MB）。
+    """
+    from dev_agent.context.index import ProjectIndex
+
     try:
-        orchestrator = get_orchestrator()
-        result = orchestrator.execute(req.request, req.request_type)
-        return ExecuteResponse(
-            task_id=result["task_id"],
-            overall_approach=result["overall_approach"],
-            sub_tasks=result.get("sub_tasks", []),
-            duration_seconds=result["duration_seconds"],
-        )
+        project_index = ProjectIndex(Path.cwd())
+        stats = project_index.index_project(force=req.force)
+        return {"success": True, "stats": stats}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"success": False, "error": str(e)}
 
 
-@app.post("/review")
-async def review_code(req: ReviewRequest):
-    """
-    审查代码质量
-
-    返回结构化审查报告（5 维度评分 + 问题清单）
-    """
-    try:
-        orchestrator = get_orchestrator()
-        return orchestrator.review_code(req.code, req.task_description)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/generate-docs")
-async def generate_docs(req: GenerateDocsRequest):
-    """
-    为代码生成文档
-    """
-    try:
-        orchestrator = get_orchestrator()
-        docs = orchestrator.generate_docs(req.code)
-        return {"documentation": docs}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+# ── 记忆系统接口 ──
 
 @app.get("/memory/stats")
 async def memory_stats():
     """获取记忆系统统计"""
-    try:
-        orchestrator = get_orchestrator()
-        return orchestrator.memory_stats()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    from dev_agent.memory.store import get_store
 
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket 流式输出"""
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            orchestrator = get_orchestrator()
-
-            await websocket.send_json({"type": "status", "message": "开始分析需求..."})
-
-            result = orchestrator.execute(data)
-
-            await websocket.send_json({
-                "type": "result",
-                "data": result,
-            })
-    except Exception as e:
-        await websocket.send_json({"type": "error", "message": str(e)})
-    finally:
-        await websocket.close()
+    store = get_store()
+    return store.stats()

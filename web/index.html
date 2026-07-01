@@ -3,15 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DevAgent - 多智能体协作代码助手</title>
+    <title>DevAgent — AI 编码智能体</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
             --bg-primary: #0a0a0f;
@@ -21,9 +17,9 @@
             --text-primary: #f0f0f5;
             --text-secondary: #8888a0;
             --text-muted: #55556a;
-            --accent-planner: #6366f1;
-            --accent-coder: #22c55e;
-            --accent-reviewer: #f59e0b;
+            --accent: #6366f1;
+            --accent-tool: #22c55e;
+            --accent-error: #ef4444;
             --border: #2a2a3a;
             --shadow: 0 4px 24px rgba(0,0,0,0.4);
         }
@@ -34,81 +30,50 @@
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.6;
+            display: flex;
+            flex-direction: column;
         }
 
         /* Header */
         header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 64px;
+            height: 56px;
             background: rgba(10, 10, 15, 0.85);
             backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 32px;
+            padding: 0 24px;
+            position: sticky;
+            top: 0;
             z-index: 100;
         }
 
         .logo {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             font-weight: 600;
-            font-size: 18px;
+            font-size: 16px;
         }
 
         .logo-icon {
-            width: 32px;
-            height: 32px;
-            background: linear-gradient(135deg, var(--accent-planner), var(--accent-coder));
-            border-radius: 8px;
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-tool));
+            border-radius: 7px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
-        .logo-icon svg {
-            width: 18px;
-            height: 18px;
-            fill: white;
-        }
-
-        nav {
-            display: flex;
-            gap: 8px;
-        }
-
-        nav button {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            font-family: inherit;
-            font-size: 14px;
-            padding: 8px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        nav button:hover {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-        }
-
-        nav button.active {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-        }
+        .logo-icon svg { width: 16px; height: 16px; fill: white; }
 
         .status-indicator {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 13px;
+            gap: 6px;
+            font-size: 12px;
             color: var(--text-secondary);
         }
 
@@ -116,47 +81,37 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: var(--accent-coder);
+            background: var(--accent-tool);
             animation: pulse 2s ease-in-out infinite;
         }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.4; }
         }
 
         /* Main */
         main {
-            padding-top: 64px;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Tab Content */
-        .tab-content {
-            display: none;
             flex: 1;
-        }
-
-        .tab-content.active {
             display: flex;
             flex-direction: column;
+            max-width: 900px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 24px;
         }
 
-        /* Chat Tab */
+        /* Hero */
         .hero {
-            padding: 80px 32px 60px;
             text-align: center;
-            max-width: 720px;
-            margin: 0 auto;
+            padding: 60px 0 40px;
         }
 
         .hero h1 {
-            font-size: 42px;
+            font-size: 36px;
             font-weight: 600;
             letter-spacing: -0.02em;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
             background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -164,108 +119,30 @@
         }
 
         .hero p {
-            font-size: 18px;
+            font-size: 16px;
             color: var(--text-secondary);
-            max-width: 540px;
+            max-width: 520px;
             margin: 0 auto;
         }
 
-        /* Agents */
-        .agents {
-            display: flex;
-            justify-content: center;
-            gap: 24px;
-            padding: 0 32px 48px;
-            flex-wrap: wrap;
-        }
-
-        .agent {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 24px;
-            width: 200px;
-            text-align: center;
-            transition: all 0.3s ease;
-            opacity: 0.6;
-        }
-
-        .agent.active {
-            opacity: 1;
-            transform: translateY(-4px);
-            box-shadow: var(--shadow);
-        }
-
-        .agent.planner.active { border-color: var(--accent-planner); }
-        .agent.coder.active { border-color: var(--accent-coder); }
-        .agent.reviewer.active { border-color: var(--accent-reviewer); }
-
-        .agent-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            margin: 0 auto 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-        }
-
-        .agent.planner .agent-icon { background: rgba(99, 102, 241, 0.15); }
-        .agent.coder .agent-icon { background: rgba(34, 197, 94, 0.15); }
-        .agent.reviewer .agent-icon { background: rgba(245, 158, 11, 0.15); }
-
-        .agent-name {
-            font-weight: 600;
-            font-size: 15px;
-            margin-bottom: 4px;
-        }
-
-        .agent-desc {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .agent-status {
-            margin-top: 12px;
-            font-size: 11px;
-            color: var(--text-muted);
-            height: 16px;
-        }
-
-        /* Chat Area */
-        .chat-container {
-            flex: 1;
-            max-width: 800px;
-            width: 100%;
-            margin: 0 auto;
-            padding: 0 32px 32px;
-            display: flex;
-            flex-direction: column;
-        }
-
+        /* Messages */
         .messages {
             flex: 1;
-            min-height: 300px;
-            max-height: 50vh;
-            overflow-y: auto;
-            padding: 24px 0;
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 20px;
+            padding: 24px 0;
+            min-height: 300px;
         }
 
         .message {
             opacity: 0;
-            transform: translateY(12px);
-            animation: fadeIn 0.4s ease forwards;
+            transform: translateY(8px);
+            animation: fadeIn 0.3s ease forwards;
         }
 
         @keyframes fadeIn {
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .message.user {
@@ -281,46 +158,41 @@
         .message-bubble {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 16px 20px;
+            border-radius: 12px;
+            padding: 14px 18px;
         }
 
         .message.user .message-bubble {
             background: var(--bg-tertiary);
-            border-radius: 16px 16px 4px 16px;
+            border-radius: 12px 12px 4px 12px;
         }
 
         .message-label {
             font-size: 11px;
             font-weight: 500;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
             gap: 6px;
         }
 
         .message.user .message-label { color: var(--text-muted); }
-        .message.assistant .message-label { color: var(--accent-coder); }
+        .message.assistant .message-label { color: var(--accent); }
 
         .message-content {
             font-size: 14px;
             line-height: 1.7;
         }
 
-        .message.user .message-content {
-            color: var(--text-primary);
-        }
-
-        .message.assistant .message-content {
-            color: var(--text-secondary);
-        }
+        .message.user .message-content { color: var(--text-primary); }
+        .message.assistant .message-content { color: var(--text-secondary); }
 
         .message pre {
             background: var(--bg-primary);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 16px;
-            margin-top: 12px;
+            padding: 14px;
+            margin-top: 10px;
             overflow-x: auto;
             font-family: 'JetBrains Mono', monospace;
             font-size: 13px;
@@ -334,12 +206,71 @@
             font-size: 13px;
         }
 
-        .message pre code {
-            background: none;
-            padding: 0;
+        .message pre code { background: none; padding: 0; }
+
+        /* Tool Call */
+        .tool-call {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent-tool);
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin: 8px 0;
+            font-size: 13px;
         }
 
-        /* Typing indicator */
+        .tool-call-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent-tool);
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .tool-call-args {
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+
+        .tool-result {
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border);
+        }
+
+        .tool-result.expanded { max-height: none; }
+
+        .tool-result-toggle {
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            margin-top: 6px;
+            display: inline-block;
+        }
+
+        .tool-result-toggle:hover { color: var(--accent); }
+
+        /* Error */
+        .error-msg {
+            color: var(--accent-error);
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            margin: 8px 0;
+        }
+
+        /* Typing */
         .typing {
             display: flex;
             align-items: center;
@@ -360,24 +291,23 @@
 
         @keyframes typing {
             0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-            30% { transform: translateY(-8px); opacity: 1; }
+            30% { transform: translateY(-6px); opacity: 1; }
         }
 
         /* Input */
         .input-area {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: 14px;
             padding: 4px;
             display: flex;
             align-items: flex-end;
-            gap: 12px;
+            gap: 10px;
+            margin-top: 12px;
             transition: border-color 0.2s ease;
         }
 
-        .input-area:focus-within {
-            border-color: var(--accent-planner);
-        }
+        .input-area:focus-within { border-color: var(--accent); }
 
         .input-area textarea {
             flex: 1;
@@ -386,24 +316,22 @@
             outline: none;
             color: var(--text-primary);
             font-family: inherit;
-            font-size: 15px;
-            padding: 14px 16px;
+            font-size: 14px;
+            padding: 12px 14px;
             resize: none;
-            min-height: 52px;
+            min-height: 44px;
             max-height: 160px;
             line-height: 1.5;
         }
 
-        .input-area textarea::placeholder {
-            color: var(--text-muted);
-        }
+        .input-area textarea::placeholder { color: var(--text-muted); }
 
         .send-btn {
-            width: 44px;
-            height: 44px;
-            background: var(--accent-planner);
+            width: 40px;
+            height: 40px;
+            background: var(--accent);
             border: none;
-            border-radius: 12px;
+            border-radius: 10px;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -412,246 +340,57 @@
             flex-shrink: 0;
         }
 
-        .send-btn:hover {
-            background: #5558e3;
-            transform: scale(1.05);
-        }
+        .send-btn:hover { background: #5558e3; transform: scale(1.05); }
+        .send-btn:disabled { background: var(--bg-tertiary); cursor: not-allowed; transform: none; }
+        .send-btn svg { width: 16px; height: 16px; fill: white; }
 
-        .send-btn:disabled {
-            background: var(--bg-tertiary);
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .send-btn svg {
-            width: 18px;
-            height: 18px;
-            fill: white;
-        }
-
-        /* Skills Tab */
-        .skills-container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 48px 32px;
-        }
-
-        .skills-container h2 {
-            font-size: 28px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .skills-container .subtitle {
-            color: var(--text-secondary);
-            margin-bottom: 40px;
-        }
-
-        .skill-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-        }
-
-        .skill-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 28px;
-            transition: all 0.3s ease;
-        }
-
-        .skill-card:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow);
-        }
-
-        .skill-card.planner:hover { border-color: var(--accent-planner); }
-        .skill-card.coder:hover { border-color: var(--accent-coder); }
-        .skill-card.reviewer:hover { border-color: var(--accent-reviewer); }
-
-        .skill-header {
+        /* Toolbar */
+        .toolbar {
             display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-
-        .skill-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
             justify-content: center;
-            font-size: 24px;
         }
 
-        .skill-card.planner .skill-icon { background: rgba(99, 102, 241, 0.15); }
-        .skill-card.coder .skill-icon { background: rgba(34, 197, 94, 0.15); }
-        .skill-card.reviewer .skill-icon { background: rgba(245, 158, 11, 0.15); }
-
-        .skill-title {
-            font-weight: 600;
-            font-size: 18px;
-        }
-
-        .skill-version {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        .skill-desc {
+        .toolbar button {
+            background: none;
+            border: 1px solid var(--border);
             color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 20px;
-            line-height: 1.6;
-        }
-
-        .skill-section {
-            margin-bottom: 16px;
-        }
-
-        .skill-section-title {
+            font-family: inherit;
             font-size: 12px;
-            font-weight: 500;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 10px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
 
-        .skill-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .skill-tag {
+        .toolbar button:hover {
             background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .skill-tools {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .skill-tool {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--bg-primary);
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .skill-tool-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-        }
-
-        .skill-card.planner .skill-tool-dot { background: var(--accent-planner); }
-        .skill-card.coder .skill-tool-dot { background: var(--accent-coder); }
-        .skill-card.reviewer .skill-tool-dot { background: var(--accent-reviewer); }
-
-        /* Status Tab */
-        .status-container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 48px 32px;
-        }
-
-        .status-container h2 {
-            font-size: 28px;
-            font-weight: 600;
-            margin-bottom: 32px;
-        }
-
-        .status-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 20px;
-        }
-
-        .status-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .status-row:last-child {
-            border-bottom: none;
-        }
-
-        .status-label {
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .status-value {
-            font-weight: 500;
-            font-size: 14px;
-        }
-
-        .status-value.online {
-            color: var(--accent-coder);
-        }
-
-        .status-value.offline {
-            color: var(--text-muted);
+            color: var(--text-primary);
+            border-color: var(--accent);
         }
 
         /* Footer */
         footer {
             text-align: center;
-            padding: 24px;
+            padding: 16px;
             color: var(--text-muted);
-            font-size: 12px;
+            font-size: 11px;
+            border-top: 1px solid var(--border);
         }
 
         /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 3px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-muted);
-        }
-
-        /* Responsive */
         @media (max-width: 640px) {
             header { padding: 0 16px; }
-            nav button { padding: 8px 12px; font-size: 13px; }
-            .hero { padding: 48px 16px 32px; }
-            .hero h1 { font-size: 28px; }
-            .hero p { font-size: 15px; }
-            .agents { gap: 12px; padding: 0 16px 32px; }
-            .agent { width: 100%; padding: 16px; }
-            .chat-container { padding: 0 16px 24px; }
-            .skills-container { padding: 32px 16px; }
-            .skill-grid { grid-template-columns: 1fr; }
+            main { padding: 16px; }
+            .hero { padding: 32px 0 24px; }
+            .hero h1 { font-size: 26px; }
+            .message.user { max-width: 90%; }
         }
     </style>
 </head>
@@ -663,309 +402,299 @@
             </div>
             DevAgent
         </div>
-        <nav>
-            <button class="active" data-tab="chat">对话</button>
-            <button data-tab="skills">技能</button>
-            <button data-tab="status">状态</button>
-        </nav>
         <div class="status-indicator">
             <div class="status-dot"></div>
-            <span>系统就绪</span>
+            <span id="status-text">系统就绪</span>
         </div>
     </header>
 
     <main>
-        <!-- Chat Tab -->
-        <section class="tab-content active" id="tab-chat">
-            <section class="hero">
-                <h1>多智能体协作代码助手</h1>
-                <p>描述你的需求，规划、编码、审查交给专业的 Agent 团队完成</p>
-            </section>
-
-            <section class="agents">
-                <div class="agent planner" id="agent-planner">
-                    <div class="agent-icon">🧠</div>
-                    <div class="agent-name">规划Agent</div>
-                    <div class="agent-desc">分析需求，制定计划</div>
-                    <div class="agent-status"></div>
-                </div>
-                <div class="agent coder" id="agent-coder">
-                    <div class="agent-icon">⚡</div>
-                    <div class="agent-name">编码Agent</div>
-                    <div class="agent-desc">生成高质量代码</div>
-                    <div class="agent-status"></div>
-                </div>
-                <div class="agent reviewer" id="agent-reviewer">
-                    <div class="agent-icon">🔍</div>
-                    <div class="agent-name">审查Agent</div>
-                    <div class="agent-desc">检查质量，优化建议</div>
-                    <div class="agent-status"></div>
-                </div>
-            </section>
-
-            <section class="chat-container">
-                <div class="messages" id="messages">
-                    <div class="message assistant">
-                        <div class="message-bubble">
-                            <div class="message-label">🤖 DevAgent</div>
-                            <div class="message-content">
-                                你好！我是 DevAgent，多智能体协作代码助手。<br><br>
-                                告诉我你想要实现的功能，我会调度规划、编码、审查三个 Agent 协同完成开发任务。
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="input-area">
-                    <textarea id="input" placeholder="描述你的开发需求..." rows="1"></textarea>
-                    <button class="send-btn" id="send-btn">
-                        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 11 2 10l2-2-2-2 2-2-2-2-2 2-2-2v3l16 6-16 6v3l2-2-2-2 2-2-2-2z"/></svg>
-                    </button>
-                </div>
-            </section>
+        <section class="hero">
+            <h1>AI 编码智能体</h1>
+            <p>描述你的需求，Agent 自主完成 — 读取文件、编辑代码、运行命令、语义搜索</p>
         </section>
 
-        <!-- Skills Tab -->
-        <section class="tab-content" id="tab-skills">
-            <div class="skills-container">
-                <h2>Agent 技能配置</h2>
-                <p class="subtitle">每个 Agent 都配备了专属技能和工具</p>
-
-                <div class="skill-grid">
-                    <!-- Planner Skill -->
-                    <div class="skill-card planner">
-                        <div class="skill-header">
-                            <div class="skill-icon">🧠</div>
-                            <div>
-                                <div class="skill-title">Self-Improving Agent</div>
-                                <div class="skill-version">v3.0.21 · 来源: SkillHub</div>
-                            </div>
-                        </div>
-                        <div class="skill-desc">
-                            捕获经验教训、错误和纠正，实现持续改进。当命令失败、用户纠正或发现更好方法时自动记录，让 Agent 越用越聪明。
-                        </div>
-                        <div class="skill-section">
-                            <div class="skill-section-title">核心能力</div>
-                            <div class="skill-tags">
-                                <span class="skill-tag">错误记录与分析</span>
-                                <span class="skill-tag">学习经验积累</span>
-                                <span class="skill-tag">知识过时检测</span>
-                                <span class="skill-tag">最佳实践提取</span>
-                                <span class="skill-tag">需求分析</span>
-                                <span class="skill-tag">任务拆解与规划</span>
-                            </div>
-                        </div>
-                        <div class="skill-section">
-                            <div class="skill-section-title">可用工具</div>
-                            <div class="skill-tools">
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>网络搜索</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>网页获取</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>文件读取</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>文件写入</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Coder Skill -->
-                    <div class="skill-card coder">
-                        <div class="skill-header">
-                            <div class="skill-icon">⚡</div>
-                            <div>
-                                <div class="skill-title">Auto Agentic Coding</div>
-                                <div class="skill-version">v1.0.0 · 来源: SkillHub</div>
-                            </div>
-                        </div>
-                        <div class="skill-desc">
-                            全自动 AI 编程工作流，编排从"想法"到"PR"的完整流程。人只在需求确认、技术方案、测试充分性、PR Review 四个节点把关。
-                        </div>
-                        <div class="skill-section">
-                            <div class="skill-section-title">核心能力</div>
-                            <div class="skill-tags">
-                                <span class="skill-tag">多语言代码生成</span>
-                                <span class="skill-tag">代码补全与重构</span>
-                                <span class="skill-tag">单元测试生成</span>
-                                <span class="skill-tag">PR 描述生成</span>
-                                <span class="skill-tag">需求发现与整理</span>
-                                <span class="skill-tag">技术方案设计</span>
-                            </div>
-                        </div>
-                        <div class="skill-section">
-                            <div class="skill-section-title">可用工具</div>
-                            <div class="skill-tools">
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>网络搜索</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>网页获取</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>文件读取</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>文件写入</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>Shell命令</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>Git操作</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Reviewer Skill -->
-                    <div class="skill-card reviewer">
-                        <div class="skill-header">
-                            <div class="skill-icon">🔍</div>
-                            <div>
-                                <div class="skill-title">Code Reviewer</div>
-                                <div class="skill-version">v1.0.0 · 来源: SkillHub</div>
-                            </div>
-                        </div>
-                        <div class="skill-desc">
-                            对代码进行全面审查，包含规范性检查、Bug检测、性能优化建议和可读性评估。生成结构化审查报告，严重性分级处理。
-                        </div>
-                        <div class="skill-section">
-                            <div class="skill-section-title">核心能力</div>
-                            <div class="skill-tags">
-                                <span class="skill-tag">代码规范性检查</span>
-                                <span class="skill-tag">潜在Bug检测</span>
-                                <span class="skill-tag">安全漏洞扫描</span>
-                                <span class="skill-tag">性能优化建议</span>
-                                <span class="skill-tag">可读性评估</span>
-                                <span class="skill-tag">审查报告生成</span>
-                            </div>
-                        </div>
-                        <div class="skill-section">
-                            <div class="skill-section-title">可用工具</div>
-                            <div class="skill-tools">
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>网络搜索</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>网页获取</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>文件读取</div>
-                                <div class="skill-tool"><span class="skill-tool-dot"></span>Shell命令</div>
-                            </div>
-                        </div>
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="message-bubble">
+                    <div class="message-label">DevAgent</div>
+                    <div class="message-content">
+                        你好！我是 DevAgent，一个 AI 编码智能体。<br><br>
+                        告诉我你的开发需求，我会自主完成：读取文件、编辑代码、运行命令、搜索代码库。
                     </div>
                 </div>
             </div>
-        </section>
+        </div>
 
-        <!-- Status Tab -->
-        <section class="tab-content" id="tab-status">
-            <div class="status-container">
-                <h2>系统状态</h2>
+        <div class="input-area">
+            <textarea id="input" placeholder="描述你的开发需求..." rows="1"></textarea>
+            <button class="send-btn" id="send-btn" title="发送 (Enter 换行: Shift+Enter)">
+                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 11 2 10l2-2-2-2 2-2-2-2-2 2-2-2v3l16 6-16 6v3l2-2-2-2 2-2-2-2z"/></svg>
+            </button>
+        </div>
 
-                <div class="status-card">
-                    <div class="status-row">
-                        <span class="status-label">系统状态</span>
-                        <span class="status-value online">● 在线</span>
-                    </div>
-                    <div class="status-row">
-                        <span class="status-label">联网功能</span>
-                        <span class="status-value online">● 已启用</span>
-                    </div>
-                    <div class="status-row">
-                        <span class="status-label">技能加载</span>
-                        <span class="status-value online">● 已就绪</span>
-                    </div>
-                    <div class="status-row">
-                        <span class="status-label">已加载技能数</span>
-                        <span class="status-value">3</span>
-                    </div>
-                </div>
-
-                <div class="status-card">
-                    <div class="status-row">
-                        <span class="status-label">规划Agent</span>
-                        <span class="status-value online">● 就绪</span>
-                    </div>
-                    <div class="status-row">
-                        <span class="status-label">编码Agent</span>
-                        <span class="status-value online">● 就绪</span>
-                    </div>
-                    <div class="status-row">
-                        <span class="status-label">审查Agent</span>
-                        <span class="status-value online">● 就绪</span>
-                    </div>
-                </div>
-            </div>
-        </section>
+        <div class="toolbar">
+            <button onclick="clearChat()">清空对话</button>
+            <button onclick="runIndex()">索引项目</button>
+            <button onclick="showStats()">记忆统计</button>
+        </div>
     </main>
 
     <footer>
-        DevAgent · 多智能体协作代码助手
+        DevAgent v0.4.0 · Agent + 工具集范式 · 基于 Cursor / Claude Code
     </footer>
 
     <script>
-        // Tab Navigation
-        const navButtons = document.querySelectorAll('nav button');
-        const tabContents = document.querySelectorAll('.tab-content');
-
-        navButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tab = btn.dataset.tab;
-
-                navButtons.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-
-                tabContents.forEach(content => {
-                    content.classList.remove('active');
-                    if (content.id === `tab-${tab}`) {
-                        content.classList.add('active');
-                    }
-                });
-            });
-        });
-
-        // Chat Functionality
-        const messages = document.getElementById('messages');
-        const input = document.getElementById('input');
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('input');
         const sendBtn = document.getElementById('send-btn');
-        const agents = {
-            planner: document.getElementById('agent-planner'),
-            coder: document.getElementById('agent-coder'),
-            reviewer: document.getElementById('agent-reviewer')
-        };
+        const statusText = document.getElementById('status-text');
 
         let isProcessing = false;
+        let currentAssistantBubble = null;
+        let currentAssistantContent = null;
 
-        // Auto-resize textarea
-        input.addEventListener('input', () => {
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+        // 自动调整 textarea 高度
+        inputEl.addEventListener('input', () => {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
         });
 
-        // Send message
+        // Enter 发送，Shift+Enter 换行
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+
         async function sendMessage() {
-            const text = input.value.trim();
+            const text = inputEl.value.trim();
             if (!text || isProcessing) return;
 
             isProcessing = true;
             sendBtn.disabled = true;
-            input.value = '';
-            input.style.height = 'auto';
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
 
-            // Add user message
+            // 添加用户消息
             addMessage('user', text);
 
-            // Simulate multi-agent workflow
-            await simulateAgents(text);
+            // 创建助手消息容器（流式填充）
+            currentAssistantBubble = createAssistantBubble();
+            currentAssistantContent = currentAssistantBubble.querySelector('.message-content');
+
+            statusText.textContent = 'Agent 思考中...';
+
+            try {
+                await streamChat(text);
+            } catch (err) {
+                addError(`请求失败: ${err.message}`);
+            } finally {
+                isProcessing = false;
+                sendBtn.disabled = false;
+                statusText.textContent = '系统就绪';
+                inputEl.focus();
+            }
         }
 
-        function addMessage(type, content, label = null) {
+        function streamChat(message) {
+            return new Promise((resolve, reject) => {
+                const response = fetch('/chat/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message }),
+                });
+
+                response.then(res => {
+                    if (!res.ok) {
+                        reject(new Error(`HTTP ${res.status}`));
+                        return;
+                    }
+
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let textBuffer = '';
+
+                    function read() {
+                        reader.read().then(({ done, value }) => {
+                            if (done) {
+                                resolve();
+                                return;
+                            }
+
+                            buffer += decoder.decode(value, { stream: true });
+
+                            // 解析 SSE 事件
+                            const lines = buffer.split('\n');
+                            buffer = lines.pop() || '';
+
+                            let currentEvent = null;
+                            for (const line of lines) {
+                                if (line.startsWith('event: ')) {
+                                    currentEvent = line.slice(7).trim();
+                                } else if (line.startsWith('data: ') && currentEvent) {
+                                    try {
+                                        const data = JSON.parse(line.slice(6));
+                                        handleEvent(currentEvent, data);
+                                    } catch (e) {
+                                        // 忽略解析错误
+                                    }
+                                    currentEvent = null;
+                                }
+                            }
+
+                            read();
+                        }).catch(reject);
+                    }
+
+                    read();
+                }).catch(reject);
+            });
+        }
+
+        function handleEvent(type, data) {
+            switch (type) {
+                case 'tool_start':
+                    // 先 flush 文本
+                    flushText();
+                    addToolCall(data.tool, data.args, data.content);
+                    statusText.textContent = `执行: ${data.tool}`;
+                    break;
+
+                case 'tool_result':
+                    addToolResult(data.tool, data.content);
+                    statusText.textContent = 'Agent 思考中...';
+                    break;
+
+                case 'text':
+                    textBuffer += data.content;
+                    currentAssistantContent.innerHTML = formatContent(textBuffer);
+                    scrollToBottom();
+                    break;
+
+                case 'error':
+                    flushText();
+                    addError(data.content);
+                    break;
+
+                case 'done':
+                    flushText();
+                    // 如果没有任何内容，显示占位
+                    if (!textBuffer && !currentAssistantBubble.querySelector('.tool-call')) {
+                        currentAssistantContent.innerHTML = '<em style="color: var(--text-muted)">（无回复）</em>';
+                    }
+                    resolveProcessing();
+                    break;
+            }
+        }
+
+        function flushText() {
+            // text 已实时渲染，这里只是清理 buffer 状态
+            textBuffer = '';
+        }
+
+        function resolveProcessing() {
+            // 处理完成
+        }
+
+        function createAssistantBubble() {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = `
+                <div class="message-bubble">
+                    <div class="message-label">DevAgent</div>
+                    <div class="message-content"></div>
+                </div>
+            `;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+            return div;
+        }
+
+        function addMessage(type, content) {
             const div = document.createElement('div');
             div.className = `message ${type}`;
+            const label = type === 'user' ? '你' : 'DevAgent';
+            div.innerHTML = `
+                <div class="message-bubble">
+                    <div class="message-label">${label}</div>
+                    <div class="message-content">${type === 'user' ? escapeHtml(content) : formatContent(content)}</div>
+                </div>
+            `;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
 
-            const labelText = type === 'user' ? '你' : (label || '🤖 DevAgent');
+        function addToolCall(tool, args, content) {
+            if (!currentAssistantBubble) return;
 
-            if (type === 'assistant') {
-                div.innerHTML = `
-                    <div class="message-bubble">
-                        <div class="message-label">${labelText}</div>
-                        <div class="message-content">${formatContent(content)}</div>
-                    </div>
-                `;
-            } else {
-                div.innerHTML = `
-                    <div class="message-bubble">
-                        <div class="message-label">${labelText}</div>
-                        <div class="message-content">${escapeHtml(content)}</div>
-                    </div>
-                `;
+            const argsStr = args ? JSON.stringify(args, null, 2) : '';
+            const toolDiv = document.createElement('div');
+            toolDiv.className = 'tool-call';
+            toolDiv.innerHTML = `
+                <div class="tool-call-header">
+                    <span>⚙</span>
+                    <span>${escapeHtml(tool)}</span>
+                </div>
+                <div class="tool-call-args">${escapeHtml(argsStr)}</div>
+                <div class="tool-result" style="display:none;"></div>
+            `;
+            // 插入到 message-content 之后
+            const bubble = currentAssistantBubble.querySelector('.message-bubble');
+            bubble.appendChild(toolDiv);
+            scrollToBottom();
+        }
+
+        function addToolResult(tool, content) {
+            if (!currentAssistantBubble) return;
+
+            const toolCalls = currentAssistantBubble.querySelectorAll('.tool-call');
+            if (toolCalls.length === 0) return;
+
+            // 填充最后一个 tool-call 的结果
+            const lastToolCall = toolCalls[toolCalls.length - 1];
+            const resultEl = lastToolCall.querySelector('.tool-result');
+
+            const truncated = content.length > 2000 ? content.slice(0, 2000) + '\n... (已截断)' : content;
+            resultEl.textContent = truncated;
+            resultEl.style.display = 'block';
+
+            // 添加展开/折叠
+            if (content.length > 200) {
+                resultEl.classList.add('collapsed');
+                resultEl.style.maxHeight = '150px';
+                const toggle = document.createElement('div');
+                toggle.className = 'tool-result-toggle';
+                toggle.textContent = '展开 ▼';
+                toggle.onclick = () => {
+                    if (resultEl.style.maxHeight === 'none') {
+                        resultEl.style.maxHeight = '150px';
+                        toggle.textContent = '展开 ▼';
+                    } else {
+                        resultEl.style.maxHeight = 'none';
+                        toggle.textContent = '折叠 ▲';
+                    }
+                };
+                lastToolCall.appendChild(toggle);
             }
 
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
-            return div;
+            scrollToBottom();
+        }
+
+        function addError(content) {
+            if (!currentAssistantBubble) {
+                currentAssistantBubble = createAssistantBubble();
+                currentAssistantContent = currentAssistantBubble.querySelector('.message-content');
+            }
+            const errDiv = document.createElement('div');
+            errDiv.className = 'error-msg';
+            errDiv.textContent = '错误: ' + content;
+            currentAssistantBubble.querySelector('.message-bubble').appendChild(errDiv);
+            scrollToBottom();
         }
 
         function formatContent(content) {
@@ -981,82 +710,56 @@
             return div.innerHTML;
         }
 
-        function setAgentStatus(agent, status) {
-            const el = agents[agent];
-            const statusEl = el.querySelector('.agent-status');
-
-            el.classList.toggle('active', status !== '');
-            statusEl.textContent = status;
+        function scrollToBottom() {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        async function simulateAgents(userRequest) {
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'message assistant';
-            typingDiv.innerHTML = `
-                <div class="message-bubble">
-                    <div class="message-label">🤖 DevAgent</div>
-                    <div class="typing">
-                        <span></span><span></span><span></span>
+        // 工具栏功能
+        function clearChat() {
+            if (confirm('确定清空当前对话？')) {
+                messagesEl.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-bubble">
+                            <div class="message-label">DevAgent</div>
+                            <div class="message-content">对话已清空。请描述你的新需求。</div>
+                        </div>
                     </div>
-                </div>
-            `;
-            messages.appendChild(typingDiv);
-            messages.scrollTop = messages.scrollHeight;
-
-            // Planner
-            setAgentStatus('planner', '分析中...');
-            await sleep(800);
-            setAgentStatus('planner', '已完成');
-
-            // Coder
-            setAgentStatus('planner', '');
-            setAgentStatus('coder', '编写代码...');
-            typingDiv.querySelector('.typing').innerHTML = '<span style="color: var(--accent-coder)">⚡ 编码Agent 正在生成代码...</span>';
-            await sleep(1200);
-            setAgentStatus('coder', '已完成');
-
-            // Reviewer
-            setAgentStatus('coder', '');
-            setAgentStatus('reviewer', '审查中...');
-            typingDiv.querySelector('.typing').innerHTML = '<span style="color: var(--accent-reviewer)">🔍 审查Agent 正在检查...</span>';
-            await sleep(800);
-            setAgentStatus('reviewer', '已完成');
-
-            // Remove typing and show result
-            typingDiv.remove();
-
-            const demoCode = `def range_diff(lst):
-    """返回列表中最大值与最小值的差"""
-    if not lst:
-        return 0
-    return max(lst) - min(lst)
-
-# 示例
-numbers = [3, 1, 4, 1, 5, 9, 2, 6]
-print(f"最大值与最小值之差: {range_diff(numbers)}")  # 输出: 8`;
-
-            addMessage('assistant', `已完成任务分解与执行。\n\n${demoCode}\n\n代码已生成并通过审查，可直接使用。`, '✅ 任务完成');
-
-            setTimeout(() => {
-                setAgentStatus('reviewer', '');
-            }, 1000);
-
-            isProcessing = false;
-            sendBtn.disabled = false;
-        }
-
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        // Event listeners
-        sendBtn.addEventListener('click', sendMessage);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
+                `;
             }
-        });
+        }
+
+        async function runIndex() {
+            if (!confirm('索引项目代码库？首次运行需下载 Embedding 模型（~100MB）。')) return;
+
+            statusText.textContent = '索引中...';
+            try {
+                const res = await fetch('/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: false }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`索引完成！\n文件: ${data.stats.files}\n代码块: ${data.stats.chunks}\n跳过: ${data.stats.skipped}`);
+                } else {
+                    alert(`索引失败: ${data.error}`);
+                }
+            } catch (err) {
+                alert(`请求失败: ${err.message}`);
+            } finally {
+                statusText.textContent = '系统就绪';
+            }
+        }
+
+        async function showStats() {
+            try {
+                const res = await fetch('/memory/stats');
+                const data = await res.json();
+                alert(`记忆系统统计\n\n对话会话: ${data.conversations}\n消息数量: ${data.messages}\n代码块: ${data.file_chunks}\n经验教训: ${data.lessons}\n\n数据库: ${data.db_path}`);
+            } catch (err) {
+                alert(`请求失败: ${err.message}`);
+            }
+        }
     </script>
 </body>
 </html>

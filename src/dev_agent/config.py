@@ -1,7 +1,7 @@
 """
 DevAgent 配置系统
-基于 pydantic-settings，从 .env 和环境变量加载所有配置
-支持数据库后端可替换（SQLite / PostgreSQL / Milvus / ChromaDB）
+基于 pydantic-settings，从 .env 和环境变量加载配置
+单模型运行时，Provider 可切换（OpenAI 兼容协议）
 """
 from __future__ import annotations
 
@@ -11,38 +11,34 @@ from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class DeepSeekConfig(BaseSettings):
-    """DeepSeek-V4-Pro 配置 — 大脑规划 + 代码生成 + 仲裁"""
-    model_config = SettingsConfigDict(env_prefix="DEEPSEEK_")
+class LLMConfig(BaseSettings):
+    """LLM 配置 — 单模型，Provider 可切换
+
+    通过 OpenAI 兼容协议，一行配置即可切换 DeepSeek / Qwen / OpenAI / Claude
+    """
+    model_config = SettingsConfigDict(env_prefix="LLM_")
+
     api_key: str = ""
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-chat"
+    temperature: float = 0.3
+    max_tokens: int = 8192
+    timeout: float = 120.0
 
+    # 流式输出
+    streaming: bool = True
 
-class QwenConfig(BaseSettings):
-    """Qwen-Plus 配置 — 代码审查（便宜、JSON 输出稳定）"""
-    model_config = SettingsConfigDict(env_prefix="QWEN_")
-    api_key: str = ""
-    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model: str = "qwen-plus"
+    # Function Calling 最大轮数（AgentLoop 中限制工具调用循环次数）
+    max_tool_rounds: int = 20
 
 
 class MemoryConfig(BaseSettings):
-    """记忆系统配置 — 支持 SQLite/PostgreSQL + Milvus/ChromaDB 可替换"""
+    """记忆系统配置 — SQLite 统一本地存储"""
     model_config = SettingsConfigDict(env_prefix="MEMORY_")
 
-    # 结构化记忆 — SQLite（默认）或 PostgreSQL
     sqlite_path: str = "data/memory.db"
-    postgres_dsn: str = ""  # 非空时优先使用 PostgreSQL
-
-    # 向量记忆 — Milvus（默认）或 ChromaDB
-    milvus_host: str = "localhost"
-    milvus_port: int = 19530
-    milvus_collection: str = "dev_agent_memory"
-    # ChromaDB 备用
-    chroma_persist_dir: str = "data/chroma"
-
-    embedding_dim: int = 1536
+    # 本地 Embedding 模型（sentence-transformers）
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
 
 
 class AgentConfig(BaseSettings):
@@ -54,12 +50,10 @@ class AgentConfig(BaseSettings):
         extra="ignore",
     )
 
-    deepseek: DeepSeekConfig = DeepSeekConfig()
-    qwen: QwenConfig = QwenConfig()
+    llm: LLMConfig = LLMConfig()
     memory: MemoryConfig = MemoryConfig()
 
-    workspace: Path = Path("workspace")
-    max_retries: int = 3
+    workspace: Path = Path(".")
     verbose: bool = True
     max_context_tokens: int = 60000
     summary_trigger_tokens: int = 45000
@@ -67,10 +61,8 @@ class AgentConfig(BaseSettings):
     def validate_api_keys(self) -> list[str]:
         """检查哪些 API Key 缺失"""
         missing = []
-        if not self.deepseek.api_key or "your-" in self.deepseek.api_key:
-            missing.append("DeepSeek-V4-Pro (DEEPSEEK_API_KEY)")
-        if not self.qwen.api_key or "your-" in self.qwen.api_key:
-            missing.append("Qwen-Plus (QWEN_API_KEY)")
+        if not self.llm.api_key or "your-" in self.llm.api_key:
+            missing.append("LLM (LLM_API_KEY)")
         return missing
 
 

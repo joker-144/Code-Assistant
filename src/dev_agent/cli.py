@@ -1,125 +1,44 @@
 """
 CLI 入口 — 基于 Typer + Rich
-提供 run / chat / review / serve / version 命令
+交互式 REPL + 流式输出 Agent 的思考和工具调用
+
+支持的命令:
+  /help       显示帮助
+  /clear      清空当前对话上下文
+  /tokens     查看当前 token 使用情况
+  /index      索引项目代码库
+  /stats      查看记忆系统统计
+  /exit       退出
+
+多行输入: Shift+Enter 换行，Enter 发送
 """
 from __future__ import annotations
 
-import json
-import sys
+import asyncio
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.prompt import Prompt
 
 from dev_agent.config import get_config
 
 app = typer.Typer(
     name="dev-agent",
-    help="DevAgent — 多模型协作开发智能体 (DeepSeek-V4-Pro + Qwen-Plus)",
+    help="DevAgent — AI 编码智能体 (Agent + 工具集)",
 )
 console = Console()
-
-
-def _get_orchestrator():
-    """延迟导入编排器"""
-    from dev_agent.orchestrator import get_orchestrator
-    return get_orchestrator()
-
-
-@app.command()
-def run(
-    request: str = typer.Argument(..., help="开发需求描述"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="输出结果到文件"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="JSON 格式输出"),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="静默模式"),
-):
-    """
-    执行一次开发任务
-
-    示例:
-      dev-agent run "用 Python 写一个函数，返回列表的最大值和最小值之差"
-      dev-agent run "创建一个 FastAPI 应用，包含 /health 端点"
-    """
-    # 检查 API Key
-    config = get_config()
-    missing = config.validate_api_keys()
-    if missing:
-        console.print(f"[red]错误: 以下 API Key 缺失:[/red]")
-        for m in missing:
-            console.print(f"  - {m}")
-        console.print("\n[yellow]请在 .env 文件中配置 API Key[/yellow]")
-        raise typer.Exit(code=1)
-
-    if not quiet:
-        config.verbose = True
-
-    orchestrator = _get_orchestrator()
-
-    with console.status("[bold green]执行中...[/bold green]"):
-        result = orchestrator.execute(request)
-
-    if json_output:
-        console.print(json.dumps(result, ensure_ascii=False, indent=2))
-    elif output:
-        Path(output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-        console.print(f"[green]结果已写入: {output}[/green]")
-    else:
-        _print_result(result)
-
-
-def _print_result(result: dict) -> None:
-    """格式化输出执行结果"""
-    # 方案概览
-    console.print(Panel(
-        f"[bold cyan]{result.get('overall_approach', 'N/A')}[/bold cyan]",
-        title="执行方案",
-        border_style="cyan",
-    ))
-
-    # 架构说明
-    arch = result.get("architecture_notes", "")
-    if arch:
-        console.print(Panel(arch, title="架构说明", border_style="blue"))
-
-    # 子任务表
-    table = Table(title="子任务执行情况")
-    table.add_column("ID", style="dim")
-    table.add_column("描述")
-    table.add_column("执行者")
-    table.add_column("状态")
-
-    for task in result.get("sub_tasks", []):
-        status_style = {
-            "done": "green",
-            "failed": "red",
-            "running": "yellow",
-            "pending": "dim",
-        }.get(task.get("status", ""), "white")
-
-        table.add_row(
-            task.get("id", "-"),
-            task.get("description", "-")[:60],
-            task.get("worker", "-"),
-            f"[{status_style}]{task.get('status', '-')}[/{status_style}]",
-        )
-
-    console.print(table)
-
-    # 耗时
-    console.print(f"\n[dim]耗时: {result.get('duration_seconds', '?')}s[/dim]")
 
 
 @app.command()
 def chat():
     """
-    交互式对话模式
+    交互式对话 — 流式输出 Agent 的思考和操作
 
-    输入开发需求，我来规划并执行
-    输入 'exit' 退出 | 'status' 查看状态 | 'help' 帮助
+    输入需求，Agent 自主完成（读取文件、编辑代码、运行命令等）
+    输入 /exit 退出 | /help 查看命令 | /clear 清空上下文
     """
     config = get_config()
     missing = config.validate_api_keys()
@@ -130,19 +49,23 @@ def chat():
         console.print("\n[yellow]请在 .env 文件中配置 API Key[/yellow]")
         raise typer.Exit(code=1)
 
-    orchestrator = _get_orchestrator()
+    from dev_agent.agent.loop import create_agent
+
+    agent = create_agent(workspace=Path.cwd())
 
     console.print(Panel(
-        "[bold]DevAgent 交互模式[/bold]\n"
-        "输入开发需求，我来规划并执行\n"
-        "输入 [yellow]exit[/yellow] 退出 | [yellow]status[/yellow] 查看状态 | [yellow]help[/yellow] 帮助",
-        title="🧠 DevAgent",
+        "[bold]DevAgent[/bold] — AI 编码智能体\n"
+        "输入需求，Agent 自主完成（读取文件、编辑代码、运行命令）\n"
+        "[yellow]/help[/yellow] 查看命令 | [yellow]/clear[/yellow] 清空上下文 | [yellow]/exit[/yellow] 退出",
+        title="DevAgent",
         border_style="green",
     ))
 
     while True:
         try:
-            user_input = console.input("\n[bold green]需求> [/bold green]").strip()
+            # 使用 Prompt 获取输入，支持 / 命令
+            console.print()
+            user_input = console.input("[bold green]❯[/bold green] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[yellow]再见![/yellow]")
             break
@@ -150,106 +73,197 @@ def chat():
         if not user_input:
             continue
 
-        if user_input.lower() == "exit":
-            console.print("[yellow]再见![/yellow]")
-            break
-        elif user_input.lower() == "status":
-            stats = orchestrator.memory_stats()
-            console.print(json.dumps(stats, ensure_ascii=False, indent=2))
-            continue
-        elif user_input.lower() == "help":
-            console.print("""
-[bold]可用命令:[/bold]
-  [cyan]任意需求[/cyan] — 执行开发任务
-  [cyan]exit[/cyan]      — 退出
-  [cyan]status[/cyan]    — 查看记忆系统状态
-  [cyan]help[/cyan]      — 显示帮助
-            """)
-            continue
+        # 处理斜杠命令
+        if user_input.startswith("/"):
+            cmd = user_input.lower()
+            if cmd in ("/exit", "/quit"):
+                console.print("[yellow]再见![/yellow]")
+                break
+            elif cmd == "/help":
+                _show_help()
+                continue
+            elif cmd == "/clear":
+                _clear_context(agent)
+                continue
+            elif cmd == "/tokens":
+                _show_tokens(agent)
+                continue
+            elif cmd == "/index":
+                _run_index()
+                continue
+            elif cmd == "/stats":
+                _show_stats()
+                continue
+            else:
+                console.print(f"[red]未知命令: {user_input}[/red]  (输入 /help 查看可用命令)")
+                continue
 
-        result = orchestrator.execute(user_input)
-        _print_result(result)
+        # 运行 Agent 循环
+        asyncio.run(_run_agent(agent, user_input))
+
+
+def _show_help():
+    """显示帮助"""
+    console.print(Panel(
+        "[bold]可用命令:[/bold]\n\n"
+        "[cyan]/help[/cyan]     显示帮助\n"
+        "[cyan]/clear[/cyan]    清空当前对话上下文\n"
+        "[cyan]/tokens[/cyan]   查看当前 token 使用情况\n"
+        "[cyan]/index[/cyan]    索引项目代码库（用于 search_code）\n"
+        "[cyan]/stats[/cyan]    查看记忆系统统计\n"
+        "[cyan]/exit[/cyan]     退出\n\n"
+        "[bold]使用方式:[/bold]\n"
+        "直接输入需求，Agent 自主完成开发任务",
+        title="帮助",
+        border_style="cyan",
+    ))
+
+
+def _clear_context(agent):
+    """清空对话上下文"""
+    from dev_agent.context.manager import ContextManager
+    from dev_agent.agent.system_prompt import get_system_prompt
+
+    agent.context = ContextManager(
+        workspace=agent.workspace,
+        system_prompt=get_system_prompt(),
+    )
+    console.print("[green]已清空对话上下文[/green]")
+
+
+def _show_tokens(agent):
+    """显示 token 使用"""
+    tokens = agent.context.token_count()
+    config = get_config()
+    max_tokens = config.max_context_tokens
+    percentage = (tokens / max_tokens) * 100 if max_tokens > 0 else 0
+
+    console.print(Panel(
+        f"当前上下文 token: [cyan]{tokens:,}[/cyan] / {max_tokens:,}\n"
+        f"使用率: [{'green' if percentage < 70 else 'yellow' if percentage < 90 else 'red'}]{percentage:.1f}%[/]",
+        title="Token 使用",
+        border_style="cyan",
+    ))
+
+
+def _run_index():
+    """触发项目索引"""
+    from dev_agent.context.index import ProjectIndex
+
+    console.print("[bold cyan]开始索引项目代码库...[/bold cyan]")
+    try:
+        project_index = ProjectIndex(Path.cwd())
+        with console.status("[cyan]索引中（首次运行需下载 Embedding 模型 ~100MB）...[/cyan]"):
+            stats = project_index.index_project()
+
+        console.print(Panel(
+            f"[bold green]索引完成[/bold green]\n\n"
+            f"  索引文件: [cyan]{stats['files']}[/cyan]\n"
+            f"  代码块:   [cyan]{stats['chunks']}[/cyan]\n"
+            f"  跳过未改: [dim]{stats['skipped']}[/dim]",
+            title="索引统计",
+            border_style="green",
+        ))
+    except Exception as e:
+        console.print(f"[red]索引失败: {e}[/red]")
+
+
+def _show_stats():
+    """显示记忆系统统计"""
+    from dev_agent.memory.store import get_store
+
+    try:
+        store = get_store()
+        stats = store.stats()
+
+        console.print(Panel(
+            f"对话会话:  [cyan]{stats['conversations']}[/cyan]\n"
+            f"消息数量:  [cyan]{stats['messages']}[/cyan]\n"
+            f"代码块:    [cyan]{stats['file_chunks']}[/cyan]\n"
+            f"经验教训:  [cyan]{stats['lessons']}[/cyan]\n"
+            f"数据库:    [dim]{stats['db_path']}[/dim]",
+            title="记忆系统统计",
+            border_style="cyan",
+        ))
+    except Exception as e:
+        console.print(f"[red]获取统计失败: {e}[/red]")
+
+
+async def _run_agent(agent, user_input: str):
+    """运行 Agent 并流式输出"""
+    try:
+        async for event in agent.run(user_input):
+            if event.type == "tool_start":
+                console.print(f"[dim cyan]⚙ {event.content}[/dim cyan]")
+            elif event.type == "tool_result":
+                # 工具结果以可折叠的暗色文本展示
+                result_text = event.content
+                if len(result_text) > 500:
+                    result_text = result_text[:500] + " ..."
+                console.print(f"[dim]  ↳ {result_text}[/dim]")
+            elif event.type == "text":
+                console.print()
+                console.print(Markdown(event.content))
+            elif event.type == "error":
+                console.print(f"[red]错误: {event.content}[/red]")
+            elif event.type == "done":
+                pass  # 循环正常结束
+    except Exception as e:
+        console.print(f"[red]执行失败: {e}[/red]")
 
 
 @app.command()
-def review(
-    path: str = typer.Argument(..., help="要审查的文件或目录路径"),
-    focus: str = typer.Option("all", "--focus", "-f", help="审查重点: all|security|performance"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="JSON 格式输出"),
+def index(
+    force: bool = typer.Option(False, "--force", help="强制重新索引（忽略 hash 跳过）"),
 ):
     """
-    审查代码质量
+    索引项目代码库（用于 search_code 语义搜索）
+
+    首次使用 search_code 前需运行此命令。
+    后续会增量索引，仅处理修改过的文件。
 
     示例:
-      dev-agent review src/services/
-      dev-agent review src/main.py --focus security
+      dev-agent index
+      dev-agent index --force
     """
-    orchestrator = _get_orchestrator()
+    from dev_agent.context.index import ProjectIndex
 
-    target = Path(path)
-    if target.is_file():
-        code = target.read_text(encoding="utf-8")
-    elif target.is_dir():
-        code_parts = []
-        for py_file in target.rglob("*.py"):
-            if "__pycache__" not in str(py_file):
-                code_parts.append(f"// FILE: {py_file}\n{py_file.read_text(encoding='utf-8')}")
-        code = "\n\n".join(code_parts)
-    else:
-        console.print(f"[red]路径不存在: {path}[/red]")
+    console.print("[bold cyan]开始索引项目代码库...[/bold cyan]")
+    console.print(f"[dim]工作区: {Path.cwd()}[/dim]")
+
+    try:
+        project_index = ProjectIndex(Path.cwd())
+        with console.status("[cyan]索引中（首次运行需下载 Embedding 模型 ~100MB）...[/cyan]"):
+            stats = project_index.index_project(force=force)
+
+        console.print(Panel(
+            f"[bold green]索引完成[/bold green]\n\n"
+            f"  索引文件: [cyan]{stats['files']}[/cyan]\n"
+            f"  代码块:   [cyan]{stats['chunks']}[/cyan]\n"
+            f"  跳过未改: [dim]{stats['skipped']}[/dim]",
+            title="索引统计",
+            border_style="green",
+        ))
+        console.print(
+            "[dim]现在可以在对话中使用 search_code 工具进行语义搜索了[/dim]"
+        )
+    except Exception as e:
+        console.print(f"[red]索引失败: {e}[/red]")
         raise typer.Exit(code=1)
-
-    with console.status("[bold green]审查中...[/bold green]"):
-        result = orchestrator.review_code(code, f"审查 {path} (重点: {focus})")
-
-    if json_output:
-        console.print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        _print_review_result(result)
-
-
-def _print_review_result(result: dict) -> None:
-    """格式化输出审查结果"""
-    score = result.get("overall_score", "?")
-    color = "green" if isinstance(score, int) and score >= 7 else "yellow" if isinstance(score, int) and score >= 5 else "red"
-    console.print(f"\n[bold]总评分: [{color}]{score}/10[/{color}][/bold]")
-
-    # 各维度评分
-    dims = result.get("dimensions", {})
-    if dims:
-        table = Table(title="各维度评分")
-        table.add_column("维度")
-        table.add_column("评分")
-        table.add_column("评价")
-        for name, detail in dims.items():
-            dim_score = detail.get("score", "?") if isinstance(detail, dict) else "?"
-            dim_comment = detail.get("comment", "") if isinstance(detail, dict) else ""
-            table.add_row(name, str(dim_score), dim_comment[:60])
-        console.print(table)
-
-    # 问题列表
-    issues = result.get("issues", [])
-    if issues:
-        console.print("\n[bold]发现的问题:[/bold]")
-        for issue in issues:
-            severity = issue.get("severity", "info")
-            icon = {"error": "🔴", "warning": "🟡", "suggestion": "🔵"}.get(severity, "⚪")
-            console.print(f"  {icon} [{severity}] {issue.get('location', '?')}: {issue.get('message', '')}")
-
-    console.print(f"\n[dim]{result.get('summary', '')}[/dim]")
 
 
 @app.command()
 def version():
     """显示版本信息"""
     console.print("""
-[bold cyan]DevAgent[/bold cyan] v0.1.0
-多模型协作开发智能体
+[bold cyan]DevAgent[/bold cyan] v0.4.0
+AI 编码智能体 — Agent + 工具集范式
 
-[dim]大脑: DeepSeek-V4-Pro (规划 + 仲裁)[/dim]
-[dim]编码: DeepSeek-V4-Pro (代码生成)[/dim]
-[dim]审查: Qwen-Plus (代码审查)[/dim]
-[dim]记忆: SQLite + Milvus[/dim]
+[dim]模型: 单模型 + Provider 可切换 (OpenAI 兼容)[/dim]
+[dim]工具: read_file / write_file / edit_file / search_code / run_command / git[/dim]
+[dim]核心: Agentic Loop — LLM 自主决策[/dim]
+[dim]记忆: SQLite 统一存储 + 项目代码库 Embedding 索引[/dim]
+[dim]接口: CLI 交互式 REPL + Web SSE 流式 API[/dim]
     """)
 
 
@@ -268,7 +282,8 @@ def serve(
     import uvicorn
 
     console.print(f"[bold green]启动 API 服务: http://{host}:{port}[/bold green]")
-    console.print("[dim]API 文档: http://{host}:{port}/docs[/dim]")
+    console.print(f"[dim]API 文档: http://{host}:{port}/docs[/dim]")
+    console.print(f"[dim]Web 界面: http://{host}:{port}/[/dim]")
     uvicorn.run("dev_agent.api:app", host=host, port=port, reload=True)
 
 

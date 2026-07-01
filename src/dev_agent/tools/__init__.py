@@ -1,1 +1,1 @@
-# DevAgent 工具层 — 文件/Shell/Git 操作
+# DevAgent 工具层 — function calling schema + 工具引擎
