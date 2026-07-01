@@ -9,11 +9,9 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -25,11 +23,28 @@ app = FastAPI(
 # 静态 Web 界面托管
 WEB_DIR = Path(__file__).parent.parent.parent / "web"
 
+# 全局 Agent 缓存 — 按 conversation_id 复用，实现多轮对话记忆
+# key: conversation_id, value: AgentLoop 实例
+_agents: dict[str, "AgentLoop"] = {}
+
+
+def _get_or_create_agent(conversation_id: str | None = None):
+    """获取或创建 Agent（按 conversation_id 复用，保持多轮对话上下文）"""
+    from dev_agent.agent.loop import create_agent
+
+    if conversation_id and conversation_id in _agents:
+        return _agents[conversation_id], conversation_id
+
+    agent = create_agent(workspace=Path.cwd(), conversation_id=conversation_id)
+    _agents[agent.conversation_id] = agent
+    return agent, agent.conversation_id
+
 
 # ── 请求/响应模型 ──
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息", min_length=1)
+    conversation_id: str | None = Field(None, description="对话 ID（首次对话不传，后续传入以保持上下文）")
 
 
 class HealthResponse(BaseModel):
@@ -73,11 +88,11 @@ async def chat_stream(req: ChatRequest):
       - event: tool_result  工具执行结果
       - event: text         Agent 文本回复
       - event: error        错误
-      - event: done         完成
-    """
-    from dev_agent.agent.loop import create_agent
+      - event: done         完成（data 中含 conversation_id）
 
-    agent = create_agent(workspace=Path.cwd())
+    通过传入 conversation_id 实现多轮对话上下文保持。
+    """
+    agent, conv_id = _get_or_create_agent(req.conversation_id)
 
     async def event_stream():
         try:
@@ -91,7 +106,7 @@ async def chat_stream(req: ChatRequest):
                 elif event.type == "error":
                     yield f"event: error\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
                 elif event.type == "done":
-                    yield f"event: done\ndata: {{}}\n\n"
+                    yield f"event: done\ndata: {json.dumps({'conversation_id': conv_id}, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'content': str(e)}, ensure_ascii=False)}\n\n"
 

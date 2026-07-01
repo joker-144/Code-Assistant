@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -92,6 +93,7 @@ class ChatHistory:
         """触发摘要压缩 — 将较早的对话用 LLM 摘要
 
         保留最近 6 条消息完整，更早的消息压缩为摘要。
+        使用 asyncio.to_thread 避免阻塞事件循环。
         """
         if len(self._messages) <= 6:
             return  # 消息太少，无需压缩
@@ -117,7 +119,16 @@ class ChatHistory:
         )
 
         try:
-            new_summary = await _async_chat(llm_client, summary_prompt)
+            # 使用 asyncio.to_thread 包装同步调用，避免阻塞事件循环
+            new_summary = await asyncio.to_thread(
+                llm_client.chat,
+                [
+                    {"role": "system", "content": "你是一个对话摘要助手，用中文简洁地总结对话。"},
+                    {"role": "user", "content": summary_prompt},
+                ],
+                temperature=0.1,
+                max_tokens=1024,
+            )
             self._summary = new_summary
             self._messages = to_keep
         except Exception:
@@ -142,12 +153,3 @@ class ChatHistory:
             messages.append(m.to_openai_dict())
 
         return messages
-
-
-async def _async_chat(llm_client, prompt: str) -> str:
-    """调用 LLM 生成摘要（内部辅助函数）"""
-    # 使用同步 client 的 chat 方法（摘要不需要 function calling）
-    return llm_client.chat([
-        {"role": "system", "content": "你是一个对话摘要助手，用中文简洁地总结对话。"},
-        {"role": "user", "content": prompt},
-    ], temperature=0.1, max_tokens=1024)

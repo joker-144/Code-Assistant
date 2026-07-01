@@ -21,7 +21,6 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
 
 from dev_agent.config import get_config
 
@@ -138,9 +137,10 @@ def _show_tokens(agent):
     max_tokens = config.max_context_tokens
     percentage = (tokens / max_tokens) * 100 if max_tokens > 0 else 0
 
+    color = "green" if percentage < 70 else "yellow" if percentage < 90 else "red"
     console.print(Panel(
         f"当前上下文 token: [cyan]{tokens:,}[/cyan] / {max_tokens:,}\n"
-        f"使用率: [{'green' if percentage < 70 else 'yellow' if percentage < 90 else 'red'}]{percentage:.1f}%[/]",
+        f"使用率: [{color}]{percentage:.1f}%[/]",
         title="Token 使用",
         border_style="cyan",
     ))

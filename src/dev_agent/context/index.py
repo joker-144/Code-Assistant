@@ -70,7 +70,7 @@ class ProjectIndex:
         if self._embedder is None:
             from sentence_transformers import SentenceTransformer
             from dev_agent.config import get_config
-            model_name = get_config().memory.embedding_model
+            model_name = get_config().memory_embedding_model
             self._embedder = SentenceTransformer(model_name)
         return self._embedder
 

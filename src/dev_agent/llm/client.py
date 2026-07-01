@@ -3,8 +3,9 @@ LLM 客户端 — 支持 function calling + streaming
 
 核心能力:
   - chat_with_tools(): 支持 OpenAI tools/tool_choice 参数，返回含 tool_calls 的完整 message
+  - achat_with_tools(): 异步版本（不阻塞事件循环）
   - chat_stream(): 流式输出，实时返回生成内容
-  - chat(): 基础文本对话（兼容旧调用方式）
+  - chat(): 基础文本对话
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from typing import Any, AsyncIterator, Optional
 
 from openai import AsyncOpenAI, OpenAI
 
-from dev_agent.config import LLMConfig, get_config
+from dev_agent.config import get_config
 
 
 @dataclass
@@ -43,20 +44,22 @@ class LLMClient:
     通过 OpenAI 兼容协议接入 DeepSeek / Qwen / OpenAI 等服务商
     """
 
-    def __init__(self, config: Optional[LLMConfig] = None):
-        self.config = config or get_config().llm
-        self.model = self.config.model
-        # 同步客户端（用于简单调用）
+    def __init__(self):
+        config = get_config()
+        self.model = config.llm_model
+        self.temperature = config.llm_temperature
+        self.max_tokens = config.llm_max_tokens
+        # 同步客户端（用于简单调用 / 摘要）
         self._sync = OpenAI(
-            api_key=self.config.api_key,
-            base_url=self.config.base_url,
-            timeout=self.config.timeout,
+            api_key=config.llm_api_key,
+            base_url=config.llm_base_url,
+            timeout=config.llm_timeout,
         )
-        # 异步客户端（用于流式 + AgentLoop）
+        # 异步客户端（用于 AgentLoop，不阻塞事件循环）
         self._async = AsyncOpenAI(
-            api_key=self.config.api_key,
-            base_url=self.config.base_url,
-            timeout=self.config.timeout,
+            api_key=config.llm_api_key,
+            base_url=config.llm_base_url,
+            timeout=config.llm_timeout,
         )
 
     # ── 基础文本对话 ──
@@ -68,16 +71,46 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """基础对话，返回纯文本"""
+        """基础对话，返回纯文本（同步）"""
         response = self._sync.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=temperature if temperature is not None else self.config.temperature,
-            max_tokens=max_tokens or self.config.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+            max_tokens=max_tokens or self.max_tokens,
         )
         return response.choices[0].message.content or ""
 
-    # ── Function Calling ──
+    # ── Function Calling（异步，不阻塞事件循环）──
+
+    async def achat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        tool_choice: str = "auto",
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> ChatMessage:
+        """异步 function calling 对话 — 不阻塞事件循环
+
+        Args:
+            messages: 对话消息列表
+            tools: OpenAI function calling schema 列表
+            tool_choice: "auto" | "none" | {"type": "function", "function": {"name": "..."}}
+
+        Returns:
+            ChatMessage: 含 content 和 tool_calls 的完整消息
+        """
+        response = await self._async.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=temperature if temperature is not None else self.temperature,
+            max_tokens=max_tokens or self.max_tokens,
+        )
+
+        return self._parse_response(response)
 
     def chat_with_tools(
         self,
@@ -88,35 +121,32 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> ChatMessage:
-        """支持 function calling 的对话
-
-        Args:
-            messages: 对话消息列表
-            tools: OpenAI function calling schema 列表
-            tool_choice: "auto" | "none" | {"type": "function", "function": {"name": "..."}}
-
-        Returns:
-            ChatMessage: 含 content 和 tool_calls 的完整消息
-        """
+        """同步 function calling 对话（保留兼容，但 AgentLoop 应使用 achat_with_tools）"""
         response = self._sync.chat.completions.create(
             model=self.model,
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
-            temperature=temperature if temperature is not None else self.config.temperature,
-            max_tokens=max_tokens or self.config.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+            max_tokens=max_tokens or self.max_tokens,
         )
 
+        return self._parse_response(response)
+
+    def _parse_response(self, response) -> ChatMessage:
+        """解析 OpenAI 响应为 ChatMessage（统一处理 tool_call.id 为 None 的情况）"""
         msg = response.choices[0].message
         tool_calls: list[ToolCall] = []
         if msg.tool_calls:
-            for call in msg.tool_calls:
+            for idx, call in enumerate(msg.tool_calls):
                 try:
                     args = json.loads(call.function.arguments) if call.function.arguments else {}
                 except json.JSONDecodeError:
                     args = {"_raw": call.function.arguments}
+                # 某些 Provider 可能返回 None id，生成回退 id
+                call_id = call.id if call.id else f"call_{idx}"
                 tool_calls.append(ToolCall(
-                    id=call.id,
+                    id=call_id,
                     name=call.function.name,
                     arguments=args,
                 ))
@@ -146,8 +176,8 @@ class LLMClient:
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature if temperature is not None else self.config.temperature,
-            "max_tokens": max_tokens or self.config.max_tokens,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens or self.max_tokens,
             "stream": True,
         }
         if tools:
@@ -160,6 +190,6 @@ class LLMClient:
                 yield chunk.choices[0].delta.content
 
 
-def create_llm_client(config: Optional[LLMConfig] = None) -> LLMClient:
+def create_llm_client() -> LLMClient:
     """创建 LLM 客户端（工厂函数）"""
-    return LLMClient(config)
+    return LLMClient()

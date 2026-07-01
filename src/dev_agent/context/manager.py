@@ -29,7 +29,7 @@ class ContextManager:
         self.history = ChatHistory(
             max_tokens=max_tokens or config.max_context_tokens,
             summary_trigger_tokens=summary_trigger_tokens or config.summary_trigger_tokens,
-            model=model or config.llm.model,
+            model=model or config.llm_model,
         )
 
     def add_user_message(self, content: str):

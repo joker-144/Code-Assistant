@@ -453,6 +453,7 @@
         let isProcessing = false;
         let currentAssistantBubble = null;
         let currentAssistantContent = null;
+        let conversationId = null;  // 对话 ID，首次对话后由服务端返回
 
         // 自动调整 textarea 高度
         inputEl.addEventListener('input', () => {
@@ -502,10 +503,14 @@
 
         function streamChat(message) {
             return new Promise((resolve, reject) => {
+                const body = { message };
+                if (conversationId) {
+                    body.conversation_id = conversationId;
+                }
                 const response = fetch('/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message }),
+                    body: JSON.stringify(body),
                 });
 
                 response.then(res => {
@@ -583,6 +588,10 @@
 
                 case 'done':
                     flushText();
+                    // 保存 conversation_id 用于后续多轮对话
+                    if (data.conversation_id) {
+                        conversationId = data.conversation_id;
+                    }
                     // 如果没有任何内容，显示占位
                     if (!textBuffer && !currentAssistantBubble.querySelector('.tool-call')) {
                         currentAssistantContent.innerHTML = '<em style="color: var(--text-muted)">（无回复）</em>';
@@ -717,6 +726,7 @@
         // 工具栏功能
         function clearChat() {
             if (confirm('确定清空当前对话？')) {
+                conversationId = null;  // 重置对话 ID，下次发消息会创建新对话
                 messagesEl.innerHTML = `
                     <div class="message assistant">
                         <div class="message-bubble">
