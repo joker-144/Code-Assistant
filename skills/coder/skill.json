@@ -1,0 +1,27 @@
+{
+  "name": "coderules-skill",
+  "version": "1.0.0",
+  "description": "智能代码规范助手 — 自动识别项目技术栈（TS/Python/Go/Rust/Java），加载对应语言和框架规范（React/Vue/Next.js/Django/Spring Boot），生成严格符合规范的代码，并对现有代码进行规范审查。",
+  "author": "user_3b34947d",
+  "source": "SkillHub",
+  "downloads": "148",
+  "capabilities": [
+    "技术栈自动识别",
+    "多语言代码规范约束生成",
+    "框架规范加载（React/Vue/Next.js/Django）",
+    "代码自检与规范标注",
+    "不规范代码修复",
+    "代码质量检查（错误处理/日志/注释）",
+    "安全规范合规（防注入/输入验证）",
+    "性能优化建议"
+  ],
+  "tools": [
+    "web_search",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "run_command",
+    "git",
+    "list_dir"
+  ]
+}

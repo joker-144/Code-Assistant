@@ -1,0 +1,18 @@
+{
+  "framework": "Django",
+  "rules": {
+    "models": {
+      "Meta类": "必须定义 class Meta",
+      "str方法": "所有 Model 必须覆盖 __str__",
+      "related_name": "ForeignKey 必须设置 related_name"
+    },
+    "views": {
+      "类视图优先": "使用 Class-Based Views",
+      "权限检查": "所有视图必须权限检查"
+    },
+    "naming": {
+      "模板命名": "app/model_list.html 模式",
+      "URL命名": "URL 模式必须有 app 前缀"
+    }
+  }
+}
