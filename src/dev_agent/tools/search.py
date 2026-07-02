@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from dev_agent.context.index import ProjectIndex
-from dev_agent.tools.engine import ToolResult
+from dev_agent.tools.types import ToolResult
 
 
 class SearchTool:

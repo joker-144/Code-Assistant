@@ -33,7 +33,7 @@ class AgentConfig(BaseSettings):
     llm_chat_max_tokens: int = Field(default=8192, validation_alias="LLM_CHAT_MAX_TOKENS")
     llm_chat_timeout: float = Field(default=120.0, validation_alias="LLM_CHAT_TIMEOUT")
     llm_chat_streaming: bool = Field(default=True, validation_alias="LLM_CHAT_STREAMING")
-    llm_chat_max_tool_rounds: int = Field(default=20, validation_alias="LLM_CHAT_MAX_TOOL_ROUNDS")
+    llm_chat_max_tool_rounds: int = Field(default=300, validation_alias="LLM_CHAT_MAX_TOOL_ROUNDS")
 
     # ── 记忆系统配置 ──
     memory_sqlite_path: str = Field(default="data/memory.db", validation_alias="MEMORY_SQLITE_PATH")

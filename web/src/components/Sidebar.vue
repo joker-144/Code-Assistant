@@ -1,10 +1,12 @@
 <script setup>
+import { ref } from 'vue'
+
 defineProps({
   statusText: { type: String, default: '系统就绪' },
   isProcessing: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['new-chat', 'index', 'stats'])
+const emit = defineEmits(['new-chat', 'index', 'stats', 'skills'])
 </script>
 
 <template>
@@ -26,8 +28,37 @@ const emit = defineEmits(['new-chat', 'index', 'stats'])
       <span>{{ statusText }}</span>
     </div>
 
+    <!-- Agent 状态 -->
+    <div class="agent-section">
+      <div class="section-title">智能体协作</div>
+      <div class="agent-status">
+        <div class="agent-row">
+          <span class="agent-icon">🧠</span>
+          <span class="agent-name">规划Agent</span>
+          <span class="agent-state" id="agent-planner">待命中</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-icon">⚡</span>
+          <span class="agent-name">编码Agent</span>
+          <span class="agent-state" id="agent-coder">待命中</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-icon">🔍</span>
+          <span class="agent-name">审查Agent</span>
+          <span class="agent-state" id="agent-reviewer">待命中</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 操作按钮 -->
     <nav class="nav">
+      <button class="nav-btn" @click="emit('skills')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>技能管理</span>
+      </button>
+
       <button class="nav-btn" @click="emit('new-chat')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
           <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -53,7 +84,7 @@ const emit = defineEmits(['new-chat', 'index', 'stats'])
     <!-- 底部信息 -->
     <div class="sidebar-footer">
       <div class="version-tag">v0.4.0</div>
-      <div class="powered-by">Agent + 工具集范式</div>
+      <div class="powered-by">多智能体协作架构</div>
     </div>
   </aside>
 </template>

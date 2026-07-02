@@ -99,16 +99,16 @@ class AgentLoop:
         while rounds < self.max_tool_rounds:
             rounds += 1
 
-            # 1. 检查 token 预算，必要时压缩（先压缩再构建，避免 messages 过时）
+            # 1. 检查 token 预算，必要时压缩
             await self.context.maybe_compress(self.llm)
 
             # 2. 构建 LLM 输入
             messages = self.context.build_messages()
             tool_schemas = self.tools.get_schemas()
 
-            # 3. 调用 LLM（异步，不阻塞事件循环）
+            # 3. 调用 LLM（流式 — 逐 token 产出文本）
             try:
-                response = await self.llm.achat_with_tools(
+                stream = self.llm.achat_with_tools_stream(
                     messages=messages,
                     tools=tool_schemas,
                 )
@@ -116,7 +116,21 @@ class AgentLoop:
                 yield LoopEvent(type="error", content=f"LLM 调用失败: {e}")
                 return
 
-            # 3. 判断 LLM 是否要调用工具
+            # 4. 消费流式输出
+            text_content = ""
+            response = None
+            async for event_type, event_data in stream:
+                if event_type == "text":
+                    text_content += event_data
+                    yield LoopEvent(type="text", content=event_data)
+                elif event_type == "done":
+                    response = event_data
+
+            if response is None:
+                yield LoopEvent(type="error", content="LLM 未返回有效响应")
+                return
+
+            # 5. 判断 LLM 是否要调用工具
             if response.has_tool_calls:
                 # 记录助手消息（含 tool_calls）
                 tool_calls_openai = [
@@ -133,7 +147,7 @@ class AgentLoop:
                 self.context.add_assistant_message(response.content, tool_calls_openai)
                 self._persist_message("assistant", response.content, tool_calls_openai)
 
-                # 4. 逐个执行工具
+                # 6. 逐个执行工具
                 for call in response.tool_calls:
                     yield LoopEvent(
                         type="tool_start",
@@ -161,10 +175,9 @@ class AgentLoop:
                 # 继续循环，让 LLM 看到工具结果后决定下一步
                 continue
             else:
-                # 5. LLM 返回最终文本回复，循环结束
+                # 7. LLM 返回纯文本回复（已在流中发送，无需重复发送 full text）
                 self.context.add_assistant_message(response.content)
                 self._persist_message("assistant", response.content)
-                yield LoopEvent(type="text", content=response.content)
                 yield LoopEvent(type="done")
                 return
 

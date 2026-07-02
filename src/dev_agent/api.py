@@ -1,19 +1,18 @@
 """
 API 入口 — 基于 FastAPI
 提供 SSE 流式对话 + 对话管理 + 项目索引 + 记忆统计接口
-
-同时托管 web/dist/ 静态界面（Vue 构建），访问根路径 / 即可使用。
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -22,12 +21,17 @@ app = FastAPI(
     version="0.4.0",
 )
 
-# 静态 Web 界面托管（Vue 构建产物）
-WEB_DIR = Path(__file__).parent.parent.parent / "web" / "dist"
+# CORS — 允许前端跨域调用
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 全局 Agent 缓存 — 按 conversation_id 复用，实现多轮对话记忆
-# key: conversation_id, value: AgentLoop 实例
-_MAX_AGENTS = 50  # 缓存上限，防止内存无限增长
+_MAX_AGENTS = 50
 _agents: dict[str, "AgentLoop"] = {}
 
 
@@ -40,7 +44,6 @@ def _get_or_create_agent(conversation_id: str | None = None):
 
     agent = create_agent(workspace=Path.cwd(), conversation_id=conversation_id)
 
-    # 超过上限时淘汰最早的 Agent
     if len(_agents) >= _MAX_AGENTS:
         oldest = next(iter(_agents))
         del _agents[oldest]
@@ -53,7 +56,7 @@ def _get_or_create_agent(conversation_id: str | None = None):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息", min_length=1)
-    conversation_id: str | None = Field(None, description="对话 ID（首次对话不传，后续传入以保持上下文）")
+    conversation_id: str | None = Field(None, description="对话 ID")
 
 
 class HealthResponse(BaseModel):
@@ -73,21 +76,11 @@ class IndexRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    """Web 界面"""
-    index_path = WEB_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    raise HTTPException(404, "Web 界面未找到，请先运行 cd web && npm install && npm run build")
-
-
-# 挂载静态资源（JS/CSS/图片等）
-if WEB_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
+    return {"service": "DevAgent API", "version": "0.4.0", "docs": "/docs"}
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    """健康检查"""
     return HealthResponse()
 
 
@@ -95,22 +88,25 @@ async def health():
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
-    """SSE 流式输出 — 实时返回 Agent 的思考和操作
-
-    事件类型:
-      - event: tool_start   工具调用开始
-      - event: tool_result  工具执行结果
-      - event: text         Agent 文本回复
-      - event: error        错误
-      - event: done         完成（data 中含 conversation_id）
-
-    通过传入 conversation_id 实现多轮对话上下文保持。
-    """
+    """SSE 流式输出 — 实时返回 Agent 的思考和操作"""
     agent, conv_id = _get_or_create_agent(req.conversation_id)
 
     async def event_stream():
+        HEARTBEAT_INTERVAL = 15  # 心跳间隔（秒），低于前端 30s 超时
+
+        run_gen = agent.run(req.message)
         try:
-            async for event in agent.run(req.message):
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        run_gen.__anext__(),
+                        timeout=HEARTBEAT_INTERVAL,
+                    )
+                except asyncio.TimeoutError:
+                    # 15 秒无事件 → 发送心跳注释，保持连接活跃
+                    yield ": heartbeat\n\n"
+                    continue
+
                 if event.type == "tool_start":
                     yield f"event: tool_start\ndata: {json.dumps({'tool': event.tool_name, 'args': event.tool_args, 'content': event.content}, ensure_ascii=False)}\n\n"
                 elif event.type == "tool_result":
@@ -121,8 +117,14 @@ async def chat_stream(req: ChatRequest):
                     yield f"event: error\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
                 elif event.type == "done":
                     yield f"event: done\ndata: {json.dumps({'conversation_id': conv_id}, ensure_ascii=False)}\n\n"
+        except StopAsyncIteration:
+            # 正常结束 — 确保发送 done 事件
+            yield f"event: done\ndata: {json.dumps({'conversation_id': conv_id}, ensure_ascii=False)}\n\n"
+            yield ": keepalive\n\n"
+            await asyncio.sleep(0.5)
         except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'content': str(e)}, ensure_ascii=False)}\n\n"
+            tb = traceback.format_exc()
+            yield f"event: error\ndata: {json.dumps({'content': f'{e}\\n{tb[-500:]}'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),
@@ -139,7 +141,6 @@ async def chat_stream(req: ChatRequest):
 
 @app.post("/conversations")
 async def create_conversation(req: ConversationCreate):
-    """创建新对话"""
     from dev_agent.memory.store import get_store
 
     store = get_store()
@@ -150,7 +151,6 @@ async def create_conversation(req: ConversationCreate):
 
 @app.get("/conversations/{conversation_id}/messages")
 async def get_messages(conversation_id: str, limit: int = 100):
-    """获取对话消息列表"""
     from dev_agent.memory.store import get_store
 
     store = get_store()
@@ -162,10 +162,6 @@ async def get_messages(conversation_id: str, limit: int = 100):
 
 @app.post("/index")
 async def index_project(req: IndexRequest):
-    """索引项目代码库（用于 search_code 语义搜索）
-
-    通过 asyncio.to_thread 在后台线程执行，避免阻塞事件循环。
-    """
     from dev_agent.context.index import ProjectIndex
 
     try:
@@ -180,8 +176,75 @@ async def index_project(req: IndexRequest):
 
 @app.get("/memory/stats")
 async def memory_stats():
-    """获取记忆系统统计"""
     from dev_agent.memory.store import get_store
 
     store = get_store()
     return store.stats()
+
+
+# ── 技能管理接口 ──
+
+class SkillInstallRequest(BaseModel):
+    name: str = Field(..., description="技能名称")
+
+
+@app.get("/skills")
+async def list_skills():
+    """列出所有已安装的技能"""
+    from dev_agent.skill_system import SkillLoader, get_skills_dir
+
+    loader = SkillLoader()
+    skills = loader.list_all()
+    result = {}
+    for dir_name, skill in skills.items():
+        result[dir_name] = {
+            "name": skill.name,
+            "version": skill.version,
+            "description": skill.description,
+            "capabilities": skill.capabilities,
+            "tools": skill.tools,
+        }
+    return {"skills_dir": str(get_skills_dir()), "skills": result}
+
+
+@app.get("/skills/{name}")
+async def get_skill(name: str):
+    """获取指定技能详情"""
+    from dev_agent.skill_system import SkillLoader
+
+    loader = SkillLoader()
+    skill = loader.get_by_dir_name(name)
+    if not skill:
+        raise HTTPException(404, f"技能 '{name}' 不存在")
+    return {
+        "name": skill.name,
+        "version": skill.version,
+        "description": skill.description,
+        "capabilities": skill.capabilities,
+        "tools": skill.tools,
+    }
+
+
+@app.post("/skills/install")
+async def install_skill(req: SkillInstallRequest):
+    """安装技能（从 skillhub）"""
+    import subprocess
+    from dev_agent.skill_system import get_skills_dir
+
+    skills_dir = str(get_skills_dir())
+    try:
+        result = await asyncio.to_thread(
+            lambda: subprocess.run(
+                ["skillhub", "install", req.name, "--dir", skills_dir],
+                capture_output=True, text=True, timeout=60,
+            )
+        )
+        if result.returncode == 0:
+            return {"success": True, "output": result.stdout, "skills_dir": skills_dir}
+        return {"success": False, "error": result.stderr, "skills_dir": skills_dir}
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "error": "skillhub CLI 未安装",
+            "help": "curl -fsSL https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh | bash",
+        }

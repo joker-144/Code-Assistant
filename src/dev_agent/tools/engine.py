@@ -10,31 +10,16 @@ LLM 可以在推理过程中自主决定调用哪个工具、传递什么参数�
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Awaitable
 
+from dev_agent.tools.types import ToolResult
 from dev_agent.tools.file_ops import FileOps
 from dev_agent.tools.git import GitTool
 from dev_agent.tools.search import SearchTool
 from dev_agent.tools.shell import ShellTool
-
-
-@dataclass
-class ToolResult:
-    """工具操作统一返回格式"""
-    success: bool
-    data: str = ""
-    error: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def summary(self) -> str:
-        """供 AgentLoop 展示的摘要"""
-        if self.success:
-            text = self.data
-            return text[:200] + "..." if len(text) > 200 else text
-        return f"错误: {self.error}"
+from dev_agent.tools.skill_ops import SkillOps
 
 
 @dataclass
@@ -58,6 +43,7 @@ class ToolEngine:
         shell = ShellTool(self.workspace)
         git = GitTool(self.workspace)
         search = SearchTool(self.workspace)
+        skills = SkillOps(self.workspace)
 
         self.register("read_file", file_ops.read_file, READ_FILE_SCHEMA)
         self.register("write_file", file_ops.write_file, WRITE_FILE_SCHEMA)
@@ -75,6 +61,11 @@ class ToolEngine:
         self.register("git_branch", git.git_branch, GIT_BRANCH_SCHEMA)
         self.register("git_add", git.git_add, GIT_ADD_SCHEMA)
         self.register("git_create_branch", git.git_create_branch, GIT_CREATE_BRANCH_SCHEMA)
+
+        # 技能管理工具
+        self.register("list_skills", skills.list_skills, LIST_SKILLS_SCHEMA)
+        self.register("load_skill", skills.load_skill, LOAD_SKILL_SCHEMA)
+        self.register("install_skill", skills.install_skill, INSTALL_SKILL_SCHEMA)
 
     def register(self, name: str, func: Callable[..., Awaitable[ToolResult]], schema: dict[str, Any]):
         """注册工具"""
@@ -301,6 +292,46 @@ GIT_CREATE_BRANCH_SCHEMA = {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "新分支名称"},
+            },
+            "required": ["name"],
+        },
+    },
+}
+
+# ── 技能管理工具 Schema ──
+
+LIST_SKILLS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "list_skills",
+        "description": "列出当前 skills 目录中所有已安装的技能。",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+LOAD_SKILL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "load_skill",
+        "description": "加载指定技能的详细信息（能力清单、工具列表）。不传 name 则列出所有技能。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "技能名称（skills 目录下的子目录名）"},
+            },
+        },
+    },
+}
+
+INSTALL_SKILL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "install_skill",
+        "description": "从 skillhub.cn 安装技能，安装位置为项目 skills/ 目录。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "技能名称（如 self-improving-agent）"},
             },
             "required": ["name"],
         },

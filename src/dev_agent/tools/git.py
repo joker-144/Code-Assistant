@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from dev_agent.tools.engine import ToolResult
+from dev_agent.tools.types import ToolResult
 
 
 class GitTool:

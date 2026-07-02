@@ -11,6 +11,7 @@ export default defineConfig({
       '/index': 'http://localhost:8000',
       '/memory': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/skills': 'http://localhost:8000',
     },
   },
   build: {

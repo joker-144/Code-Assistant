@@ -287,6 +287,82 @@ def serve(
     uvicorn.run("dev_agent.api:app", host=host, port=port, reload=True)
 
 
+@app.command()
+def skills(
+    action: str = typer.Argument("list", help="操作: list | install"),
+    name: str = typer.Argument("", help="技能名称（install 时需要）"),
+):
+    """
+    技能管理 — 查看或安装技能
+
+    示例:
+      dev-agent skills list
+      dev-agent skills install self-improving-agent
+    """
+    from dev_agent.skill_system import SkillLoader, get_skills_dir
+
+    if action == "list":
+        loader = SkillLoader()
+        skills_dict = loader.list_all()
+
+        if not skills_dict:
+            console.print("[dim]skills 目录为空，暂无技能。[/dim]")
+            console.print(f"[dim]skills 目录: {get_skills_dir()}[/dim]")
+            console.print("[dim]运行 'dev-agent skills install <name>' 安装技能[/dim]")
+            return
+
+        console.print(f"[bold]已安装技能[/bold] [dim](目录: {get_skills_dir()})[/dim]\n")
+        for dir_name, skill in skills_dict.items():
+            console.print(f"[bold cyan]{dir_name}[/bold cyan] — {skill.name} (v{skill.version})")
+            console.print(f"  {skill.description}")
+            caps = ", ".join(skill.capabilities)
+            console.print(f"  [dim]能力: {caps}[/dim]")
+            console.print()
+
+    elif action == "install":
+        if not name:
+            console.print("[red]请提供要安装的技能名称[/red]")
+            console.print("示例: dev-agent skills install self-improving-agent")
+            raise typer.Exit(code=1)
+
+        console.print(f"[bold cyan]安装技能: {name}...[/bold cyan]")
+        console.print(f"[dim]目标目录: {get_skills_dir()}/{name}/[/dim]")
+
+        import subprocess
+        skills_dir = str(get_skills_dir())
+
+        try:
+            result = subprocess.run(
+                ["skillhub", "install", name, "--dir", skills_dir],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                console.print(f"[green]安装成功![/green]\n{result.stdout}")
+                # 重新加载并显示
+                loader = SkillLoader()
+                skill = loader.get_by_dir_name(name)
+                if skill:
+                    console.print(f"[dim]已加载: {skill.name} v{skill.version}[/dim]")
+            else:
+                console.print(f"[yellow]skillhub 安装失败: {result.stderr}[/yellow]")
+                _show_manual_install(name, skills_dir)
+        except FileNotFoundError:
+            _show_manual_install(name, skills_dir)
+    else:
+        console.print(f"[red]未知操作: {action}[/red]  (可选: list | install)")
+
+
+def _show_manual_install(name: str, skills_dir: str):
+    """显示手动安装引导"""
+    console.print(f"\n[yellow]手动安装步骤:[/yellow]")
+    console.print(f"1. 访问 [cyan]https://skillhub.cn[/cyan] 搜索 '{name}'")
+    console.print(f"2. 下载技能包，解压到 [cyan]{skills_dir}\\{name}\\[/cyan]")
+    console.print(f"3. 确保目录下有 [cyan]skill.json[/cyan] 文件")
+    console.print(f"\n或先安装 skillhub CLI:")
+    console.print(f"  curl -fsSL https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh | bash")
+    console.print(f"  # 然后运行: skillhub install {name} --dir {skills_dir}")
+
+
 def main():
     app()
 

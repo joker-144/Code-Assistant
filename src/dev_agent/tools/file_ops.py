@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dev_agent.tools.engine import ToolResult
+from dev_agent.tools.types import ToolResult
 
 
 class FileOps:
