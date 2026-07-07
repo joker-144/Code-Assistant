@@ -52,10 +52,14 @@ Source: "..\dist\dev-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\.env.example"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; 开始菜单
-Name: "{group}\{#MyAppName}"; Filename: "{cmd}"; Parameters: "/k ""{app}\{#MyAppExeName}"" --help"; WorkingDir: "{userdocs}"; IconFilename: "{app}\{#MyAppExeName}"
-; 桌面快捷方式
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{cmd}"; Parameters: "/k ""{app}\{#MyAppExeName}"" --help"; WorkingDir: "{userdocs}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+; 开始菜单 — 桌面端
+Name: "{group}\DevAgent 桌面端"; Filename: "{app}\{#MyAppExeName}"; Parameters: "desktop"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
+; 开始菜单 — 终端模式
+Name: "{group}\DevAgent 终端"; Filename: "{cmd}"; Parameters: "/k ""{app}\{#MyAppExeName}"" --help"; WorkingDir: "{userdocs}"; IconFilename: "{app}\{#MyAppExeName}"
+; 桌面快捷方式 — 桌面端
+Name: "{autodesktop}\DevAgent 桌面端"; Filename: "{app}\{#MyAppExeName}"; Parameters: "desktop"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+; 桌面快捷方式 — 终端模式
+Name: "{autodesktop}\DevAgent 终端"; Filename: "{cmd}"; Parameters: "/k ""{app}\{#MyAppExeName}"" --help"; WorkingDir: "{userdocs}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 ; 卸载
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 

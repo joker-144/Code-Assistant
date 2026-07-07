@@ -947,12 +947,28 @@ def serve(
     host: str = typer.Option("0.0.0.0", "--host", "-h"),
     port: int = typer.Option(8000, "--port", "-p"),
 ):
-    """启动 API 服务"""
+    """启动 API 服务（不打开浏览器，适合后端部署）"""
     import uvicorn
 
     console.print(f"[bold green]启动 API 服务: http://{host}:{port}[/bold green]")
     console.print(f"[dim]API 文档: http://{host}:{port}/docs[/dim]")
     uvicorn.run("dev_agent.api:app", host=host, port=port, reload=True)
+
+
+@app.command()
+def desktop():
+    """启动桌面端 — 打开浏览器 + 系统托盘管理
+
+    启动 API 后端服务，自动打开默认浏览器访问 Web 界面，
+    同时显示系统托盘窗口，关闭窗口即停止服务。
+
+    示例:
+      dev-agent desktop
+    """
+    from dev_agent.desktop import main as desktop_main
+
+    console.print("[bold cyan]启动 DevAgent 桌面端...[/bold cyan]")
+    desktop_main()
 
 
 # ══════════════════════════════════════════════════════════════════

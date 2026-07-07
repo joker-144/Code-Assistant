@@ -70,7 +70,6 @@ hidden_imports = [
 
 # 排除不需要的模块（减小体积）
 excluded_modules = [
-    "tkinter",
     "test",
     "unittest",
     "pytest",

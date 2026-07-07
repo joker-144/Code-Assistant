@@ -10,7 +10,13 @@ DevAgent 是一个命令行 AI 编码助手，集成代码审查、代码解释�
 
 ### 方式 1：下载安装程序（Windows，推荐）
 
-前往 [GitHub Releases](https://github.com/joker-144/Code-Assistant/releases) 页面，下载最新版本的 `DevAgent-*-Setup.exe`，双击运行即可完成安装。安装后 `dev-agent` 命令会自动添加到 PATH。
+前往 [GitHub Releases](https://github.com/joker-144/Code-Assistant/releases) 页面，下载最新版本的 `DevAgent-*-Setup.exe`，双击运行即可完成安装。
+
+安装后提供两种使用方式：
+- **DevAgent 桌面端**：双击桌面/开始菜单快捷方式，自动打开浏览器访问 Web 界面（系统托盘常驻）
+- **DevAgent 终端**：在任意终端中使用 `dev-agent` 命令行工具
+
+> 也可以通过 `dev-agent desktop` 命令手动启动桌面端。
 
 ### 方式 2：从 PyPI 安装（跨平台）
 
@@ -177,7 +183,8 @@ dev-agent chat --json "分析项目结构"   # JSON 输出
 | `dev-agent version` | 显示版本 + 远程对比 | `dev-agent version` |
 | `dev-agent index` | 索引项目代码库 | `dev-agent index --force` |
 | `dev-agent collaborate` | 多 Agent 协同模式 | `dev-agent collaborate` |
-| `dev-agent serve` | 启动 API 服务 | `dev-agent serve --port 9000` |
+| `dev-agent serve` | 启动 API 服务（后端） | `dev-agent serve --port 9000` |
+| `dev-agent desktop` | 启动桌面端（浏览器 + 托盘） | `dev-agent desktop` |
 | `dev-agent stats` | 查看可观测性统计 | `dev-agent stats` |
 | `dev-agent version` | 显示版本信息 | `dev-agent version` |
 
@@ -204,6 +211,26 @@ Exit code 规范：
 - `3` — API 调用失败
 - `4` — 文件未找到
 - `5` — Git 操作失败
+
+---
+
+## 桌面端与 API 服务
+
+DevAgent 提供 Web 管理界面，支持终端和桌面两种使用方式：
+
+```bash
+# 桌面端：启动 API + 自动打开浏览器 + 系统托盘常驻
+dev-agent desktop
+
+# 仅启动 API 后端（不打开浏览器，适合部署/远程访问）
+dev-agent serve --port 8000
+```
+
+安装后桌面和开始菜单提供两个快捷方式入口：
+- 「DevAgent 桌面端」— 双击启动 Web 界面
+- 「DevAgent 终端」— 打开终端使用命令行
+
+API 在线文档地址：`http://localhost:8000/docs`
 
 ---
 

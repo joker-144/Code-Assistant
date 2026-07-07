@@ -187,3 +187,117 @@ async def memory_stats():
 
     store = get_store()
     return store.stats()
+
+
+# ── 版本检查与更新接口 ──
+
+@app.get("/api/version/check")
+async def version_check():
+    """检查最新版本（从 PyPI 获取）"""
+    import ssl
+    from urllib.request import urlopen, Request
+
+    current = __version__
+    result = {
+        "current": current,
+        "latest": current,
+        "changelog": "",
+        "has_update": False,
+        "release_url": "",
+    }
+
+    try:
+        ctx = ssl.create_default_context()
+        req = Request(
+            "https://pypi.org/pypi/dev-agent/json",
+            headers={"User-Agent": "DevAgent-Updater"},
+        )
+        with urlopen(req, timeout=10, context=ctx) as resp:
+            data = json.loads(resp.read().decode())
+            latest = data.get("info", {}).get("version", current)
+            release_url = data.get("info", {}).get("release_url", "")
+
+            result["latest"] = latest
+            result["release_url"] = release_url
+            result["has_update"] = _compare_versions(latest, current) > 0
+
+            if result["has_update"]:
+                # Try to extract changelog
+                try:
+                    req_changelog = Request(
+                        f"https://raw.githubusercontent.com/user/dev-agent/v{latest}/CHANGELOG.md",
+                        headers={"User-Agent": "DevAgent-Updater"},
+                    )
+                    with urlopen(req_changelog, timeout=5, context=ctx) as cl_resp:
+                        result["changelog"] = cl_resp.read().decode("utf-8", errors="ignore")[:4096]
+                except Exception:
+                    result["changelog"] = f"新版本 {latest} 已发布，详情请访问 {release_url}"
+    except Exception as e:
+        result["error"] = f"检查更新失败: {str(e)}"
+
+    return result
+
+
+@app.post("/api/version/update")
+async def version_update():
+    """触发 pip 升级（返回 SSE 流式进度）"""
+    import subprocess
+    import sys
+
+    async def update_stream():
+        yield f"data: {json.dumps({'status': 'starting', 'message': '正在启动更新...'}, ensure_ascii=False)}\n\n"
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "pip", "install", "--upgrade", "dev-agent",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+
+            async for line in proc.stdout:
+                decoded = line.decode("utf-8", errors="ignore").strip()
+                if decoded:
+                    yield f"data: {json.dumps({'status': 'progress', 'message': decoded}, ensure_ascii=False)}\n\n"
+
+            await proc.wait()
+
+            if proc.returncode == 0:
+                yield f"data: {json.dumps({'status': 'done', 'message': '更新完成，请重启应用以生效。'}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'error', 'message': f'更新失败，退出码: {proc.returncode}'}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': f'更新异常: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        update_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _compare_versions(v1: str, v2: str) -> int:
+    """比较两个 semver 版本号，返回 1(v1>v2) / 0(相等) / -1(v1<v2)"""
+    try:
+        from packaging.version import parse as parse_version
+    except ImportError:
+        def parse_version(v: str):
+            parts = []
+            for x in v.replace("-", ".").split("."):
+                try:
+                    parts.append(int(x))
+                except ValueError:
+                    parts.append(0)
+            return tuple(parts)
+
+    p1 = parse_version(v1)
+    p2 = parse_version(v2)
+    if p1 > p2:
+        return 1
+    elif p1 < p2:
+        return -1
+    return 0
