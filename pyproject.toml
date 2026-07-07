@@ -4,9 +4,33 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dev-agent"
-version = "0.4.0"
-description = "AI 编码智能体 — Agent + 工具集范式 (Cursor/Claude Code 风格)"
+version = "0.5.0"
+description = "AI 编码智能体 — 多 Agent 协同 + 反思机制 + 弹性工程 (2026 标准)"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "DevAgent Team" },
+]
+keywords = [
+    "ai", "coding", "agent", "cli", "code-review", "test-generation",
+    "developer-tools", "llm", "devtools", "automation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+    "Framework :: FastAPI",
+]
 
 dependencies = [
     "openai>=1.50.0",
@@ -18,11 +42,18 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
     "gitpython>=3.1.0",
-    "tiktoken>=0.7.0",                  # 精确 token 计数
-    "numpy>=1.26.0",                    # 向量运算（余弦相似度）
+    "tiktoken>=0.7.0",
+    "numpy>=1.26.0",
+    "httpx>=0.27.0",
 ]
 
-
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "build>=1.2",
+    "twine>=5.0",
+]
 
 [project.scripts]
 dev-agent = "dev_agent.cli:app"

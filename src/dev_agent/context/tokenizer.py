@@ -9,7 +9,6 @@ Token 计数器 — 基于 tiktoken 精确计数
 from __future__ import annotations
 
 import json
-import re
 from functools import lru_cache
 
 

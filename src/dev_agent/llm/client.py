@@ -32,6 +32,7 @@ class ChatMessage:
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str = "stop"
+    usage: dict[str, int] = field(default_factory=dict)
 
     @property
     def has_tool_calls(self) -> bool:
@@ -151,10 +152,19 @@ class LLMClient:
                     arguments=args,
                 ))
 
+        # 提取 usage（prompt_tokens / completion_tokens）
+        usage = {}
+        if hasattr(response, "usage") and response.usage:
+            usage = {
+                "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+            }
+
         return ChatMessage(
             content=msg.content or "",
             tool_calls=tool_calls,
             finish_reason=response.choices[0].finish_reason,
+            usage=usage,
         )
 
     # ── 流式输出 ──
@@ -168,7 +178,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> AsyncIterator[str]:
-        """流式输出 — 实时返回生成内容（纯文本，不处理 tool_calls）
+        """流式输出 — 实时返回生成内容
 
         Yields:
             文本片段（delta content）
@@ -188,86 +198,6 @@ class LLMClient:
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
-
-    async def achat_with_tools_stream(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        *,
-        tool_choice: str = "auto",
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-    ) -> AsyncIterator[tuple[str, Any]]:
-        """流式 Function Calling — 实时 yield text 片段 + 最终 tool_calls
-
-        与 achat_with_tools 的区别：text 内容逐 token 产出，
-        tool_calls 在流结束后积累返回。
-
-        Yields:
-            tuple[str, Any]:
-                ("text", str) — 每个 delta content 文本片段
-                ("done", ChatMessage) — 流结束，含完整的 content 和 tool_calls
-        """
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": tool_choice,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens or self.max_tokens,
-            "stream": True,
-        }
-
-        response = await self._async.chat.completions.create(**kwargs)
-
-        accumulated_content = ""
-        tool_call_buffers: list[dict[str, str]] = []
-
-        async for chunk in response:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-
-            # 收集文本片段
-            if delta.content:
-                accumulated_content += delta.content
-                yield ("text", delta.content)
-
-            # 收集 tool_call 增量
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    # 扩展缓冲区
-                    while len(tool_call_buffers) <= tc.index:
-                        tool_call_buffers.append({"id": "", "name": "", "arguments": ""})
-
-                    buf = tool_call_buffers[tc.index]
-                    if tc.id:
-                        buf["id"] += tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            buf["name"] += tc.function.name
-                        if tc.function.arguments:
-                            buf["arguments"] += tc.function.arguments
-
-        # 构建最终 ChatMessage
-        if tool_call_buffers:
-            parsed_calls: list[ToolCall] = []
-            for idx, buf in enumerate(tool_call_buffers):
-                try:
-                    args = json.loads(buf["arguments"]) if buf["arguments"].strip() else {}
-                except json.JSONDecodeError:
-                    args = {"_raw": buf["arguments"]}
-                parsed_calls.append(ToolCall(
-                    id=buf["id"] or f"call_{idx}",
-                    name=buf["name"],
-                    arguments=args,
-                ))
-            yield ("done", ChatMessage(
-                content=accumulated_content,
-                tool_calls=parsed_calls,
-            ))
-        else:
-            yield ("done", ChatMessage(content=accumulated_content))
 
 
 def create_llm_client() -> LLMClient:

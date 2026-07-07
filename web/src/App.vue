@@ -1,26 +1,24 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useChat } from './composables/useChat'
 import Sidebar from './components/Sidebar.vue'
 import ChatMessage from './components/ChatMessage.vue'
 import ChatInput from './components/ChatInput.vue'
 import IndexModal from './components/IndexModal.vue'
 import StatsModal from './components/StatsModal.vue'
-import SkillsPanel from './components/SkillsPanel.vue'
+import { ref } from 'vue'
 
 const {
   messages,
   isProcessing,
   statusText,
   messagesRef,
-  agentStates,
   sendMessage,
   reset,
 } = useChat()
 
 const showIndex = ref(false)
 const showStats = ref(false)
-const showSkills = ref(false)
 
 onMounted(() => {
   reset()
@@ -34,51 +32,35 @@ onMounted(() => {
     @new-chat="reset"
     @index="showIndex = true"
     @stats="showStats = true"
-    @skills="showSkills = !showSkills"
   />
 
   <main class="chat-area">
-    <template v-if="!showSkills">
-      <!-- 顶部标题 + Agent 快速状态 -->
-      <header class="chat-header">
-        <div class="header-title">
-          <span class="title-text">AI 编码智能体</span>
-          <span class="title-sub">多智能体协作 · 流式响应</span>
-        </div>
-        <div class="header-agents">
-          <div
-            v-for="agent in agentStates"
-            :key="agent.id"
-            class="header-agent"
-            :class="{ active: agent.active, done: agent.status === 'done' }"
-          >
-            <span>{{ agent.icon }}</span>
-            <span>{{ agent.status || '待命中' }}</span>
-          </div>
-        </div>
-      </header>
-
-      <!-- 消息区域 -->
-      <div class="messages" ref="messagesRef">
-        <div class="messages-inner">
-          <ChatMessage
-            v-for="(msg, i) in messages"
-            :key="i"
-            :message="msg"
-          />
-        </div>
+    <!-- 顶部标题 -->
+    <header class="chat-header">
+      <div class="header-title">
+        <span class="title-text">AI 编码智能体</span>
+        <span class="title-sub">Agent + 工具集范式</span>
       </div>
+    </header>
 
-      <!-- 输入区域 -->
-      <div class="input-section">
-        <ChatInput
-          :disabled="isProcessing"
-          @send="sendMessage"
+    <!-- 消息区域 -->
+    <div class="messages" ref="messagesRef">
+      <div class="messages-inner">
+        <ChatMessage
+          v-for="(msg, i) in messages"
+          :key="i"
+          :message="msg"
         />
       </div>
-    </template>
+    </div>
 
-    <SkillsPanel v-else />
+    <!-- 输入区域 -->
+    <div class="input-section">
+      <ChatInput
+        :disabled="isProcessing"
+        @send="sendMessage"
+      />
+    </div>
   </main>
 
   <!-- 模态框 -->
@@ -105,7 +87,6 @@ onMounted(() => {
   border-bottom: 1px solid var(--border-light);
   display: flex;
   align-items: center;
-  justify-content: space-between;
 }
 
 .header-title {
@@ -163,9 +144,6 @@ onMounted(() => {
     padding: 12px 16px;
   }
   .title-sub {
-    display: none;
-  }
-  .header-agents {
     display: none;
   }
 }
