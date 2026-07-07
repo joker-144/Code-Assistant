@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # 项目根目录
-ROOT = Path(__file__).parent.absolute()
+ROOT = Path.cwd()
 SRC = ROOT / "src"
 
 # ── 数据文件收集 ──
