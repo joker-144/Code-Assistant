@@ -14,6 +14,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - name: 锁定 Node.js 20 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: 检出代码
         uses: actions/checkout@v4
 
