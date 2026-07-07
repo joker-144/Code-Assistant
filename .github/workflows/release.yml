@@ -1,0 +1,74 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: "Windows — PyInstaller + Inno Setup"
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: 提取版本号
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          echo "VERSION=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "提取版本: $tag"
+
+      - name: 构建前端
+        run: |
+          cd web
+          npm install
+          npm run build
+          cd ..
+
+      - name: PyInstaller 打包
+        run: |
+          pyinstaller dev-agent.spec --clean --noconfirm
+          echo "EXE 已生成:"
+          Get-Item dist\dev-agent.exe | Select-Object Name, Length
+
+      - name: 安装 Inno Setup
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install innosetup --no-progress
+
+      - name: 生成安装程序
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss /DMyAppVersion=${{ steps.version.outputs.VERSION }}
+
+      - name: 列出构建产物
+        shell: pwsh
+        run: |
+          echo "=== dist 目录 ==="
+          Get-ChildItem dist -File | Select-Object Name, @{N='Size(MB)';E={[math]::Round($_.Length/1MB,2)}}
+
+      - name: 上传 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/DevAgent-*-Setup.exe
+            dist/dev-agent.exe
+          generate_release_notes: true

@@ -4,6 +4,7 @@ DevAgent 构建与发布脚本
 
 用法:
   python scripts/build.py build        构建 wheel + sdist
+  python scripts/build.py exe          构建独立 .exe + Inno Setup 安装程序
   python scripts/build.py test-install 本地安装测试
   python scripts/build.py publish      发布到 PyPI
   python scripts/build.py clean        清理构建产物
@@ -102,10 +103,60 @@ def publish() -> None:
     print("\033[32m发布完成! 升级: pip install --upgrade dev-agent\033[0m")
 
 
+def exe() -> None:
+    """构建独立 .exe 安装程序（PyInstaller + Inno Setup）"""
+    print("\033[34m[1/4] 构建前端...\033[0m")
+    web_dir = ROOT / "web"
+    if web_dir.exists():
+        run(["npm", "install"], cwd=str(web_dir))
+        run(["npm", "run", "build"], cwd=str(web_dir))
+    else:
+        print("\033[33m  未找到 web 目录，跳过前端构建\033[0m")
+
+    print("\n\033[34m[2/4] PyInstaller 打包...\033[0m")
+    run([sys.executable, "-m", "PyInstaller", "dev-agent.spec", "--clean", "--noconfirm"])
+
+    exe_path = ROOT / "dist" / "dev-agent.exe"
+    if not exe_path.exists():
+        print("\033[31m错误: dev-agent.exe 未生成\033[0m")
+        sys.exit(1)
+    size = exe_path.stat().st_size
+    print(f"\033[32m  已生成: dist/dev-agent.exe ({size / 1024 / 1024:.1f} MB)\033[0m")
+
+    print("\n\033[34m[3/4] 生成安装程序...\033[0m")
+    iscc_paths = [
+        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        r"C:\Program Files\Inno Setup 6\ISCC.exe",
+    ]
+    iscc = None
+    for p in iscc_paths:
+        if Path(p).exists():
+            iscc = p
+            break
+    if not iscc:
+        print("\033[33m  未找到 Inno Setup，跳过安装程序生成\033[0m")
+        print("\033[33m  下载: https://jrsoftware.org/isdl.php\033[0m")
+    else:
+        try:
+            from dev_agent import __version__
+            version = __version__
+        except ImportError:
+            version = "0.5.0"
+        run([iscc, str(ROOT / "installer" / "setup.iss"), f"/DMyAppVersion={version}"])
+
+    print("\n\033[34m[4/4] 构建产物:\033[0m")
+    for f in sorted((ROOT / "dist").glob("*")):
+        size = f.stat().st_size
+        print(f"  {f.name}  ({size / 1024 / 1024:.1f} MB)")
+
+    print("\n\033[32m构建完成! 安装程序位于 dist/ 目录\033[0m")
+
+
 def main() -> None:
     commands = {
         "clean": clean,
         "build": build,
+        "exe": exe,
         "test-install": test_install,
         "publish": publish,
     }
