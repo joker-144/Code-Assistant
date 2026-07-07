@@ -10,7 +10,7 @@ DevAgent 是一个命令行 AI 编码助手，集成代码审查、代码解释�
 
 ### 方式 1：下载安装程序（Windows，推荐）
 
-前往 [GitHub Releases](https://github.com/your-org/Code-Assistant/releases) 页面，下载最新版本的 `DevAgent-*-Setup.exe`，双击运行即可完成安装。安装后 `dev-agent` 命令会自动添加到 PATH。
+前往 [GitHub Releases](https://github.com/joker-144/Code-Assistant/releases) 页面，下载最新版本的 `DevAgent-*-Setup.exe`，双击运行即可完成安装。安装后 `dev-agent` 命令会自动添加到 PATH。
 
 ### 方式 2：从 PyPI 安装（跨平台）
 
