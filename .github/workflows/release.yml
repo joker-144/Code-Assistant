@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DevAgent-win-unpacked
-          path: web/dist-electron/win-unpacked/
+          path: dist-electron/win-unpacked/
 
       - name: Upload Installer
         uses: actions/upload-artifact@v4
