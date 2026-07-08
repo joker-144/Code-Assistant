@@ -6,16 +6,18 @@ const emit = defineEmits(['send'])
 
 const text = ref('')
 const textareaRef = ref(null)
+const focused = ref(false)
 
 function autoResize() {
   const el = textareaRef.value
   if (!el) return
   el.style.height = 'auto'
-  el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px'
 }
 
 function handleKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+  if (e.key === 'Escape') { e.target.blur() }
 }
 
 function submit() {
@@ -28,62 +30,90 @@ function submit() {
 </script>
 
 <template>
-  <div class="input-area">
-    <div class="input-wrapper">
+  <div class="input-area" :class="{ focused }">
+    <div class="input-shell">
+      <div class="input-prefix">
+        <span class="prefix-label">></span>
+      </div>
       <textarea
         ref="textareaRef" v-model="text" :disabled="disabled"
-        placeholder="描述你的开发需求… (Enter 发送 · Shift+Enter 换行)" rows="1"
+        placeholder="输入指令或描述需求… (Enter 发送 · Shift+Enter 换行 · Esc 退出)" rows="1"
         @input="autoResize" @keydown="handleKeydown"
+        @focus="focused = true" @blur="focused = false"
       ></textarea>
-      <button class="send-btn" :disabled="disabled || !text.trim()" @click="submit" title="发送">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
-      </button>
+      <div class="input-actions">
+        <span class="char-count" v-if="text">{{ text.length }}</span>
+        <button class="send-btn" :disabled="disabled || !text.trim()" @click="submit" title="发送 (Enter)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="input-hint">
-      <span>Chat · 所有对话均在本地处理</span>
-      <span class="token-hint" v-if="text">{{ text.length }} 字符</span>
+      <span class="hint-left"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
+      <span class="hint-right">DevAgent · 编码智能体</span>
     </div>
   </div>
 </template>
 
 <style scoped>
-.input-area { padding: 12px 0; }
+.input-area { padding: 8px 0; }
 
-.input-wrapper {
-  display: flex; align-items: flex-end; gap: 8px;
-  background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 4px 4px 4px 16px;
-  transition: all var(--transition);
+.input-shell {
+  display: flex; align-items: flex-end;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 4px 8px 4px 12px;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
 }
-.input-wrapper:focus-within {
+.input-area.focused .input-shell {
   border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md);
+}
+
+.input-prefix {
+  display: flex; align-items: center; padding-bottom: 8px; flex-shrink: 0;
+  margin-right: 6px;
+}
+.prefix-label {
+  font-family: var(--font-mono); font-size: 15px; font-weight: 700;
+  color: var(--accent); opacity: 0.8;
 }
 
 textarea {
   flex: 1; background: none; border: none; outline: none;
-  color: var(--text-primary); font-family: var(--font-sans);
-  font-size: 14px; line-height: 1.5; padding: 10px 0;
-  resize: none; min-height: 24px; max-height: 160px;
+  color: var(--text-primary); font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.6; padding: 8px 0;
+  resize: none; min-height: 22px; max-height: 180px;
 }
-textarea::placeholder { color: var(--text-faint); }
+textarea::placeholder { color: var(--text-faint); font-family: var(--font-sans); }
 textarea:disabled { color: var(--text-muted); }
 
+.input-actions { display: flex; align-items: center; gap: 6px; padding-bottom: 4px; flex-shrink: 0; }
+.char-count { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+
 .send-btn {
-  width: 38px; height: 38px; background: var(--accent);
-  border: none; border-radius: 50%; cursor: pointer;
+  width: 32px; height: 32px; background: var(--accent);
+  border: none; border-radius: 8px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: white; flex-shrink: 0; transition: all var(--transition);
+  color: white; flex-shrink: 0; transition: all 0.15s ease;
 }
-.send-btn:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.08); }
-.send-btn:active:not(:disabled) { transform: scale(0.95); }
+.send-btn:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.06); }
+.send-btn:active:not(:disabled) { transform: scale(0.94); }
 .send-btn:disabled { background: var(--bg-hover); color: var(--text-faint); cursor: not-allowed; }
 
 .input-hint {
   display: flex; align-items: center; justify-content: space-between;
-  margin-top: 6px; font-size: 10px; color: var(--text-faint);
+  margin-top: 7px; font-size: 10px; color: var(--text-faint); padding: 0 4px;
 }
-.token-hint { color: var(--text-muted); }
+kbd {
+  display: inline-block; padding: 1px 5px;
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.4;
+  color: var(--text-muted); background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 3px;
+}
+.hint-right { color: var(--text-faint); opacity: 0.6; }
 </style>

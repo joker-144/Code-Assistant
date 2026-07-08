@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -9,90 +9,54 @@ const API_PORT = 8000;
 const API_URL = `http://127.0.0.1:${API_PORT}`;
 
 function findPythonCommand() {
-  // Try common Python command names
   const candidates = ['python', 'python3', 'py'];
   const { execSync } = require('child_process');
   for (const cmd of candidates) {
-    try {
-      execSync(`where ${cmd}`, { stdio: 'ignore' });
-      return cmd;
-    } catch {}
+    try { execSync(`where ${cmd}`, { stdio: 'ignore' }); return cmd; } catch {}
   }
   return 'python';
 }
 
 function startApiProcess() {
-  // Determine if running as bundled app or dev mode
   const isDev = !app.isPackaged;
-
-  let devAgentCmd;
   let cwd;
-
   if (isDev) {
-    // Dev mode: run from project root
     cwd = path.join(__dirname, '..', '..');
-    devAgentCmd = findPythonCommand();
-    apiProcess = spawn(devAgentCmd, ['-m', 'dev_agent', 'serve'], {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: true,
+    apiProcess = spawn(findPythonCommand(), ['-m', 'dev_agent', 'serve'], {
+      cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: true,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
     });
   } else {
-    // Bundled mode: dev-agent.exe is in same folder as the Electron app
     cwd = path.dirname(app.getPath('exe'));
-    const exePath = path.join(cwd, 'dev-agent.exe');
-    apiProcess = spawn(exePath, ['serve'], {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: true,
+    apiProcess = spawn(path.join(cwd, 'dev-agent.exe'), ['serve'], {
+      cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: true,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
     });
   }
-
-  apiProcess.stdout.on('data', (data) => {
-    console.log(`[API] ${data.toString().trim()}`);
-  });
-
-  apiProcess.stderr.on('data', (data) => {
-    console.error(`[API] ${data.toString().trim()}`);
-  });
-
-  apiProcess.on('close', (code) => {
-    console.log(`[API] Process exited with code ${code}`);
-  });
+  apiProcess.stdout.on('data', (d) => console.log(`[API] ${d.toString().trim()}`));
+  apiProcess.stderr.on('data', (d) => console.error(`[API] ${d.toString().trim()}`));
+  apiProcess.on('close', (code) => console.log(`[API] exited: ${code}`));
 }
 
-function waitForApiReady(retries = 30, delay = 500) {
+function waitForApiReady(retries = 40, delay = 500) {
   return new Promise((resolve, reject) => {
     const http = require('http');
     let attempts = 0;
-
     function check() {
       attempts++;
       const req = http.get(`${API_URL}/health`, (res) => {
-        if (res.statusCode === 200) {
-          resolve();
-        } else if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error('API did not become ready in time'));
-        }
+        if (res.statusCode === 200) resolve();
+        else if (attempts < retries) setTimeout(check, delay);
+        else reject(new Error('API timeout'));
       });
       req.on('error', () => {
-        if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error('API did not become ready in time'));
-        }
+        if (attempts < retries) setTimeout(check, delay);
+        else reject(new Error('API timeout'));
       });
       req.setTimeout(2000, () => {
         req.destroy();
-        if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error('API did not become ready in time'));
-        }
+        if (attempts < retries) setTimeout(check, delay);
+        else reject(new Error('API timeout'));
       });
     }
     check();
@@ -101,131 +65,82 @@ function waitForApiReady(retries = 30, delay = 500) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
+    width: 1200, height: 800, minWidth: 900, minHeight: 600,
+    frame: false,
+    titleBarStyle: 'hidden',
     title: 'DevAgent',
-    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
+      contextIsolation: true, nodeIntegration: false,
     },
     icon: path.join(__dirname, '..', 'public', 'icon.png'),
     show: false,
+    backgroundColor: '#0d1117',
   });
 
   mainWindow.loadURL(API_URL);
+  mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximize-change', true));
+  mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximize-change', false));
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-// IPC handlers
+// ── Window controls ──
+ipcMain.handle('window:minimize', () => mainWindow?.minimize());
+ipcMain.handle('window:maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+  else mainWindow?.maximize();
+});
+ipcMain.handle('window:close', () => mainWindow?.close());
+ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false);
 
-// Check for updates - communicates with the Python API
+// ── Version ──
 ipcMain.handle('version:check', async () => {
   try {
     const http = require('http');
     return new Promise((resolve) => {
       http.get(`${API_URL}/api/version/check`, (res) => {
         let data = '';
-        res.on('data', (chunk) => data += chunk);
+        res.on('data', (c) => data += c);
         res.on('end', () => {
-          try {
-            resolve({ success: true, ...JSON.parse(data) });
-          } catch {
-            resolve({ success: false, error: 'Failed to parse version data' });
-          }
+          try { resolve({ success: true, ...JSON.parse(data) }); }
+          catch { resolve({ success: false, error: 'Parse error' }); }
         });
-      }).on('error', () => {
-        resolve({ success: false, error: 'API not reachable' });
-      });
+      }).on('error', () => resolve({ success: false, error: 'API unreachable' }));
     });
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
+  } catch (e) { return { success: false, error: e.message }; }
 });
 
-// Trigger update
 ipcMain.handle('version:update', async () => {
   try {
     const http = require('http');
     return new Promise((resolve) => {
-      const req = http.request(`${API_URL}/api/version/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }, (res) => {
-        resolve({ success: true, status: res.statusCode });
-      });
-      req.on('error', () => {
-        resolve({ success: false, error: 'Update request failed' });
-      });
+      const req = http.request(`${API_URL}/api/version/update`, { method: 'POST' },
+        (res) => resolve({ success: true, status: res.statusCode }));
+      req.on('error', () => resolve({ success: false, error: 'Update fail' }));
       req.end();
     });
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
+  } catch (e) { return { success: false, error: e.message }; }
 });
 
-// Get current version
-ipcMain.handle('version:current', () => {
-  return app.getVersion();
-});
+ipcMain.handle('version:current', () => app.getVersion());
+ipcMain.handle('is-electron', () => true);
 
-// Check if running in Electron
-ipcMain.handle('is-electron', () => {
-  return true;
-});
-
-// App lifecycle
+// ── Lifecycle ──
 app.whenReady().then(async () => {
   startApiProcess();
   createWindow();
-
-  // Show window even if API startup fails - let the user see the loading page
-  try {
-    await waitForApiReady(40, 500);
-  } catch (e) {
-    console.error('API startup failed:', e.message);
-  }
-
-  mainWindow.show();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+  try { await waitForApiReady(); } catch (e) { console.error('API startup failed:', e.message); }
+  mainWindow?.show();
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('window-all-closed', () => {
-  // Kill API process if still running
+function killApi() {
   if (apiProcess) {
     apiProcess.kill('SIGTERM');
-    // Force kill after 3 seconds
-    setTimeout(() => {
-      if (apiProcess && !apiProcess.killed) {
-        apiProcess.kill('SIGKILL');
-      }
-    }, 3000);
+    setTimeout(() => { if (apiProcess && !apiProcess.killed) apiProcess.kill('SIGKILL'); }, 3000);
   }
-  app.quit();
-});
-
-app.on('before-quit', () => {
-  if (apiProcess) {
-    apiProcess.kill('SIGTERM');
-    setTimeout(() => {
-      if (apiProcess && !apiProcess.killed) {
-        apiProcess.kill('SIGKILL');
-      }
-    }, 3000);
-  }
-});
+}
+app.on('window-all-closed', () => { killApi(); app.quit(); });
+app.on('before-quit', () => killApi());
