@@ -35,6 +35,17 @@ jobs:
       - name: Install Python dependencies
         run: pip install .
 
+      # ── Step 0: Sync version from tag ──
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: web
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg.version = $ver
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
+          Write-Output "Updated package.json version to $ver"
+
       # ── Step 1: Build frontend (Vite) ──
       - name: Build Vite frontend
         working-directory: web
