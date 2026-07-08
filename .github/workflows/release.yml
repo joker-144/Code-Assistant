@@ -1,79 +1,90 @@
-name: Build & Release
+name: Build and Release
 
 on:
   push:
     tags:
-      - "v*"
-
-permissions:
-  contents: write
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
-  build-windows:
-    name: "Windows — PyInstaller + Inno Setup"
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: 锁定 Node.js 20 环境
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 设置 Python 3.12
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.11'
 
-      - name: 安装依赖
+      - name: Install Node dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── Step 1: Build frontend (Vite) ──
+      - name: Build Vite frontend
+        working-directory: web
+        run: npm run build
+
+      # ── Step 2: Build Electron app ──
+      - name: Build Electron
+        working-directory: web
+        run: npm run electron:build
+
+      # ── Step 3: Build PyInstaller backend ──
+      - name: Build PyInstaller dev-agent.exe
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
           pip install pyinstaller
+          pyinstaller dev-agent.spec
 
-      - name: 提取版本号
-        id: version
-        shell: pwsh
+      # ── Step 4: Copy backend into Electron resources ──
+      - name: Copy backend into Electron unpacked build
         run: |
-          $tag = "${{ github.ref_name }}" -replace '^v', ''
-          echo "VERSION=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          echo "提取版本: $tag"
+          $unpackedDir = "web/dist-electron/win-unpacked"
+          $backendDir = "$unpackedDir/resources/backend"
+          New-Item -ItemType Directory -Force -Path $backendDir | Out-Null
+          Copy-Item -Path "dist/dev-agent.exe" -Destination "$backendDir/dev-agent.exe" -Force
+          Write-Output "Backend copied to $backendDir"
 
-      - name: 构建前端
-        run: |
-          cd web
-          npm install
-          npm run build
-          cd ..
-
-      - name: PyInstaller 打包
-        run: |
-          pyinstaller dev-agent.spec --clean --noconfirm
-          echo "EXE 已生成:"
-          Get-Item dist\dev-agent.exe | Select-Object Name, Length
-
-      - name: 安装 Inno Setup
-        uses: crazy-max/ghaction-chocolatey@v3
+      # ── Step 5: Build Inno Setup installer ──
+      - name: Build Inno Setup installer
+        uses: Minionguyjpro/Inno-Setup-Action@v2
         with:
-          args: install innosetup --no-progress
+          path: installer/setup.iss
 
-      - name: 生成安装程序
-        shell: cmd
-        run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss /DMyAppVersion=${{ steps.version.outputs.VERSION }}
+      # ── Step 6: Upload artifacts ──
+      - name: Upload Electron unpacked
+        uses: actions/upload-artifact@v4
+        with:
+          name: DevAgent-win-unpacked
+          path: web/dist-electron/win-unpacked/
 
-      - name: 列出构建产物
-        shell: pwsh
-        run: |
-          echo "=== dist 目录 ==="
-          Get-ChildItem dist -File | Select-Object Name, @{N='Size(MB)';E={[math]::Round($_.Length/1MB,2)}}
+      - name: Upload Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DevAgent-Installer
+          path: dist-installer/*.exe
 
-      - name: 上传 Release
+      # ── Step 7: Create GitHub Release ──
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/DevAgent-*-Setup.exe
-            dist/dev-agent.exe
+            dist-installer/*.exe
+          draft: true
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

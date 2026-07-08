@@ -1,146 +1,211 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+} = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
+const BACKEND_STARTUP_TIMEOUT = 30000;
+
 let mainWindow = null;
-let apiProcess = null;
+let backendProcess = null;
+let backendPort = null;
 
-const API_PORT = 8000;
-const API_URL = `http://127.0.0.1:${API_PORT}`;
-
-function findPythonCommand() {
-  const candidates = ['python', 'python3', 'py'];
-  const { execSync } = require('child_process');
-  for (const cmd of candidates) {
-    try { execSync(`where ${cmd}`, { stdio: 'ignore' }); return cmd; } catch {}
+function getBackendPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'backend', 'dev-agent.exe');
   }
-  return 'python';
+  return path.join(__dirname, '../../dist/dev-agent.exe');
 }
 
-function startApiProcess() {
-  const isDev = !app.isPackaged;
-  let cwd;
-  if (isDev) {
-    cwd = path.join(__dirname, '..', '..');
-    apiProcess = spawn(findPythonCommand(), ['-m', 'dev_agent', 'serve'], {
-      cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: true,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
-    });
-  } else {
-    cwd = path.dirname(app.getPath('exe'));
-    apiProcess = spawn(path.join(cwd, 'dev-agent.exe'), ['serve'], {
-      cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: true,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
-    });
-  }
-  apiProcess.stdout.on('data', (d) => console.log(`[API] ${d.toString().trim()}`));
-  apiProcess.stderr.on('data', (d) => console.error(`[API] ${d.toString().trim()}`));
-  apiProcess.on('close', (code) => console.log(`[API] exited: ${code}`));
-}
-
-function waitForApiReady(retries = 40, delay = 500) {
+function startBackend() {
   return new Promise((resolve, reject) => {
-    const http = require('http');
-    let attempts = 0;
-    function check() {
-      attempts++;
-      const req = http.get(`${API_URL}/health`, (res) => {
-        if (res.statusCode === 200) resolve();
-        else if (attempts < retries) setTimeout(check, delay);
-        else reject(new Error('API timeout'));
-      });
-      req.on('error', () => {
-        if (attempts < retries) setTimeout(check, delay);
-        else reject(new Error('API timeout'));
-      });
-      req.setTimeout(2000, () => {
-        req.destroy();
-        if (attempts < retries) setTimeout(check, delay);
-        else reject(new Error('API timeout'));
-      });
-    }
-    check();
+    const backendPath = getBackendPath();
+    console.log(`[DevAgent] Starting backend: ${backendPath}`);
+
+    backendProcess = spawn(backendPath, ['serve', '--port', '0'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    let firstLine = '';
+    const timeout = setTimeout(() => {
+      reject(new Error('Backend startup timed out after 30 seconds'));
+    }, BACKEND_STARTUP_TIMEOUT);
+
+    backendProcess.stdout.on('data', (data) => {
+      const text = data.toString();
+      if (!firstLine) {
+        const newlineIdx = text.indexOf('\n');
+        if (newlineIdx !== -1) {
+          firstLine += text.substring(0, newlineIdx);
+          clearTimeout(timeout);
+
+          const portMatch = firstLine.match(/port[:\s]*(\d+)/i);
+          if (portMatch) {
+            backendPort = parseInt(portMatch[1], 10);
+          } else {
+            const numMatch = firstLine.match(/(\d{4,5})/);
+            if (numMatch) {
+              backendPort = parseInt(numMatch[1], 10);
+            }
+          }
+
+          if (backendPort) {
+            console.log(`[DevAgent] Backend started on port ${backendPort}`);
+            resolve(backendPort);
+          } else {
+            console.log(`[DevAgent] Backend first line: ${firstLine}`);
+            backendPort = parseInt(firstLine.trim(), 10);
+            if (isNaN(backendPort)) {
+              reject(new Error(`Could not parse port from backend output: ${firstLine}`));
+            } else {
+              console.log(`[DevAgent] Backend started on port ${backendPort}`);
+              resolve(backendPort);
+            }
+          }
+        } else {
+          firstLine += text;
+          if (firstLine.length > 500) {
+            clearTimeout(timeout);
+            reject(new Error('Backend output too long without valid port'));
+          }
+        }
+      }
+    });
+
+    backendProcess.stderr.on('data', (data) => {
+      console.error(`[DevAgent Backend] ${data.toString()}`);
+    });
+
+    backendProcess.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to start backend: ${err.message}`));
+    });
+
+    backendProcess.on('exit', (code, signal) => {
+      clearTimeout(timeout);
+      if (!backendPort) {
+        reject(new Error(`Backend exited with code ${code} before reporting port`));
+      }
+    });
   });
+}
+
+function killBackend() {
+  if (backendProcess && !backendProcess.killed) {
+    console.log('[DevAgent] Stopping backend...');
+    try {
+      backendProcess.kill('SIGTERM');
+    } catch (e) {
+      // ignore
+    }
+
+    const forceKillTimeout = setTimeout(() => {
+      if (backendProcess && !backendProcess.killed) {
+        try {
+          backendProcess.kill('SIGKILL');
+        } catch (e) {
+          // ignore
+        }
+      }
+    }, 5000);
+
+    backendProcess.on('exit', () => {
+      clearTimeout(forceKillTimeout);
+    });
+  }
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200, height: 800, minWidth: 900, minHeight: 600,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     frame: false,
-    titleBarStyle: 'hidden',
-    title: 'DevAgent',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true, nodeIntegration: false,
+      contextIsolation: true,
+      nodeIntegration: false,
     },
-    icon: path.join(__dirname, '..', 'public', 'icon.png'),
-    show: false,
-    backgroundColor: '#0d1117',
+    icon: path.join(__dirname, '../../public/icon.png'),
   });
 
-  mainWindow.loadURL(API_URL);
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.loadURL(`http://localhost:${backendPort}`);
 
-  mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximize-change', true));
-  mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximize-change', false));
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
-// ── Window controls ──
-ipcMain.handle('window:minimize', () => mainWindow?.minimize());
-ipcMain.handle('window:maximize', () => {
-  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
-  else mainWindow?.maximize();
-});
-ipcMain.handle('window:close', () => mainWindow?.close());
-ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false);
-
-// ── Version ──
-ipcMain.handle('version:check', async () => {
-  try {
-    const http = require('http');
-    return new Promise((resolve) => {
-      http.get(`${API_URL}/api/version/check`, (res) => {
-        let data = '';
-        res.on('data', (c) => data += c);
-        res.on('end', () => {
-          try { resolve({ success: true, ...JSON.parse(data) }); }
-          catch { resolve({ success: false, error: 'Parse error' }); }
-        });
-      }).on('error', () => resolve({ success: false, error: 'API unreachable' }));
-    });
-  } catch (e) { return { success: false, error: e.message }; }
+// IPC handlers for frameless window controls
+ipcMain.handle('window-minimize', () => {
+  if (mainWindow) mainWindow.minimize();
 });
 
-ipcMain.handle('version:update', async () => {
-  try {
-    const http = require('http');
-    return new Promise((resolve) => {
-      const req = http.request(`${API_URL}/api/version/update`, { method: 'POST' },
-        (res) => resolve({ success: true, status: res.statusCode }));
-      req.on('error', () => resolve({ success: false, error: 'Update fail' }));
-      req.end();
-    });
-  } catch (e) { return { success: false, error: e.message }; }
-});
-
-ipcMain.handle('version:current', () => app.getVersion());
-ipcMain.handle('is-electron', () => true);
-
-// ── Lifecycle ──
-app.whenReady().then(async () => {
-  startApiProcess();
-  createWindow();
-  try { await waitForApiReady(); } catch (e) { console.error('API startup failed:', e.message); }
-  mainWindow?.show();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
-
-function killApi() {
-  if (apiProcess) {
-    apiProcess.kill('SIGTERM');
-    setTimeout(() => { if (apiProcess && !apiProcess.killed) apiProcess.kill('SIGKILL'); }, 3000);
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
   }
+});
+
+ipcMain.handle('window-close', () => {
+  if (mainWindow) mainWindow.close();
+});
+
+ipcMain.handle('window-is-maximized', () => {
+  return mainWindow ? mainWindow.isMaximized() : false;
+});
+
+app.whenReady().then(async () => {
+  try {
+    await startBackend();
+    createWindow();
+  } catch (err) {
+    dialog.showErrorBox(
+      'DevAgent Startup Error',
+      `Failed to start the backend service:\n\n${err.message}\n\nPlease ensure dev-agent.exe is available and try again.`
+    );
+    app.quit();
+  }
+});
+
+app.on('window-all-closed', () => {
+  killBackend();
+  app.quit();
+});
+
+app.on('before-quit', () => {
+  killBackend();
+});
+
+app.on('activate', () => {
+  if (mainWindow === null) {
+    createWindow();
+  }
+});
+
+// Prevent multiple instances
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
 }
-app.on('window-all-closed', () => { killApi(); app.quit(); });
-app.on('before-quit', () => killApi());

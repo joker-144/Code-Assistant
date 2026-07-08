@@ -1,1 +1,30 @@
-﻿{"name":"electron-builder","version":"1.0.0"}
+{
+  "appId": "com.devagent.desktop",
+  "productName": "DevAgent",
+  "directories": {
+    "output": "../dist-electron"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "../dist/dev-agent.exe",
+      "to": "backend/dev-agent.exe"
+    },
+    {
+      "from": "../.env.example",
+      "to": ".env.example"
+    }
+  ],
+  "win": {
+    "target": "nsis",
+    "icon": "public/icon.png"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}

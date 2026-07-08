@@ -957,18 +957,18 @@ def serve(
 
 @app.command()
 def desktop():
-    """启动桌面端 — 打开浏览器 + 系统托盘管理
+    """启动桌面端 — 优先 Electron 原生窗口，回退浏览器
 
-    启动 API 后端服务，自动打开默认浏览器访问 Web 界面，
-    同时显示系统托盘窗口，关闭窗口即停止服务。
+    检测 Electron 打包产物，找到则启动原生窗口（无浏览器外框），
+    否则回退到浏览器 + 系统托盘模式。
 
     示例:
       dev-agent desktop
     """
-    from dev_agent.desktop import main as desktop_main
+    from dev_agent.desktop import launch_desktop
 
     console.print("[bold cyan]启动 DevAgent 桌面端...[/bold cyan]")
-    desktop_main()
+    launch_desktop()
 
 
 # ══════════════════════════════════════════════════════════════════
