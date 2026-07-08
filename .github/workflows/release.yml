@@ -59,10 +59,12 @@ jobs:
           Write-Output "Backend copied to $backendDir"
 
       # ── Step 5: Build Inno Setup installer ──
-      - name: Build Inno Setup installer
-        uses: Minionguyjpro/Inno-Setup-Action@v2
-        with:
-          path: installer/setup.iss
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/setup.iss
 
       # ── Step 6: Upload artifacts ──
       - name: Upload Electron unpacked
