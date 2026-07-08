@@ -2,7 +2,7 @@
 ; Packages the Electron build output from dist-electron/
 
 #define AppName "DevAgent"
-#define AppVersion GetFileVersion("..\web\dist-electron\win-unpacked\DevAgent.exe")
+#define AppVersion GetFileVersion("..\dist-electron\win-unpacked\DevAgent.exe")
 #if AppVersion == ""
   #define AppVersion "1.0.0"
 #endif
@@ -32,7 +32,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 ; Main Electron application (unpacked build)
-Source: "..\web\dist-electron\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist-electron\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Backend executable (bundled in Electron's resources)
 ; Already included via recursesubdirs above, as it lives under resources/backend/

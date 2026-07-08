@@ -52,7 +52,7 @@ jobs:
       # ── Step 4: Copy backend into Electron resources ──
       - name: Copy backend into Electron unpacked build
         run: |
-          $unpackedDir = "web/dist-electron/win-unpacked"
+          $unpackedDir = "dist-electron/win-unpacked"
           $backendDir = "$unpackedDir/resources/backend"
           New-Item -ItemType Directory -Force -Path $backendDir | Out-Null
           Copy-Item -Path "dist/dev-agent.exe" -Destination "$backendDir/dev-agent.exe" -Force
