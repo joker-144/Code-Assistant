@@ -103,11 +103,12 @@ def main():
             "--host", "127.0.0.1",
         ]
 
-    # 启动 API 后端子进程
+    # 启动 API 后端子进程（Windows 下隐藏控制台窗口）
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
 
     # 等待 API 启动
