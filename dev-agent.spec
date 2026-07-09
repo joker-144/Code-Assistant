@@ -60,6 +60,11 @@ hidden_imports = [
     # httpx
     "httpx",
     "httpcore",
+    # 标准库（importlib.metadata 依赖 email）
+    "importlib.metadata",
+    "email",
+    "email.mime",
+    "email.mime.text",
     # 通用
     "dotenv",
     "yaml",
@@ -77,7 +82,6 @@ excluded_modules = [
     "pip",
     "wheel",
     "distutils",
-    "email",
     "xmlrpc",
     "pdb",
     "doctest",
