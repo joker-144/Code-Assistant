@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import uuid
 from pathlib import Path
 
@@ -25,7 +26,11 @@ app = FastAPI(
 )
 
 # 静态 Web 界面托管（Vue 构建产物）
-WEB_DIR = Path(__file__).parent.parent.parent / "web" / "dist"
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包后：数据文件在 sys._MEIPASS/_internal/web/dist/
+    WEB_DIR = Path(sys._MEIPASS) / "_internal" / "web" / "dist"
+else:
+    WEB_DIR = Path(__file__).parent.parent.parent / "web" / "dist"
 
 # 全局 Agent 缓存 — 按 conversation_id 复用，实现多轮对话记忆
 # key: conversation_id, value: AgentLoop 实例
