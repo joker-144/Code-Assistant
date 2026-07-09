@@ -947,12 +947,22 @@ def serve(
     host: str = typer.Option("0.0.0.0", "--host", "-h"),
     port: int = typer.Option(8000, "--port", "-p"),
 ):
-    """启动 API 服务（不打开浏览器，适合后端部署）"""
+    """启动 API 服务（不打开浏览器，适合后端部署）
+
+    port=0 时自动分配可用端口，并在 stdout 输出 PORT:<port> 供前端解析。
+    """
+    import socket
     import uvicorn
 
-    console.print(f"[bold green]启动 API 服务: http://{host}:{port}[/bold green]")
-    console.print(f"[dim]API 文档: http://{host}:{port}/docs[/dim]")
-    uvicorn.run("dev_agent.api:app", host=host, port=port, reload=True)
+    actual_port = port
+    if port == 0:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host, 0))
+            actual_port = s.getsockname()[1]
+
+    # 首行输出机器可读的端口号（Electron 前端依赖此格式）
+    print(f"PORT:{actual_port}", flush=True)
+    uvicorn.run("dev_agent.api:app", host=host, port=actual_port, reload=True)
 
 
 @app.command()
