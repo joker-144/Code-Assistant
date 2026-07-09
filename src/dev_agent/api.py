@@ -27,8 +27,14 @@ app = FastAPI(
 
 # 静态 Web 界面托管（Vue 构建产物）
 if getattr(sys, 'frozen', False):
-    # PyInstaller 打包后：数据文件在 sys._MEIPASS/_internal/web/dist/
-    WEB_DIR = Path(sys._MEIPASS) / "_internal" / "web" / "dist"
+    # PyInstaller 打包后：多个可能的路径尝试
+    _base = Path(sys._MEIPASS)
+    for _p in [_base / "web" / "dist", _base / "_internal" / "web" / "dist"]:
+        if _p.exists() and (_p / "index.html").exists():
+            WEB_DIR = _p
+            break
+    else:
+        WEB_DIR = _base / "web" / "dist"  # 默认路径
 else:
     WEB_DIR = Path(__file__).parent.parent.parent / "web" / "dist"
 

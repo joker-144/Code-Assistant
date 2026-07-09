@@ -12,13 +12,13 @@ ROOT = Path.cwd()
 SRC = ROOT / "src"
 
 # ── 数据文件收集 ──
-# web/dist 静态前端文件 -> _internal/web/dist
+# web/dist 静态前端文件 -> web/dist
 datas = []
 web_dist = ROOT / "web" / "dist"
 if web_dist.exists():
     for f in web_dist.rglob("*"):
         if f.is_file():
-            target_dir = Path("_internal") / "web" / "dist" / f.relative_to(web_dist).parent
+            target_dir = Path("web") / "dist" / f.relative_to(web_dist).parent
             datas.append((str(f), str(target_dir)))
 
 # .env.example
