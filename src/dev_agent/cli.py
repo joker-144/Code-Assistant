@@ -962,7 +962,7 @@ def serve(
 
     # 首行输出机器可读的端口号（Electron 前端依赖此格式）
     print(f"PORT:{actual_port}", flush=True)
-    uvicorn.run("dev_agent.api:app", host=host, port=actual_port, reload=True)
+    uvicorn.run("dev_agent.api:app", host=host, port=actual_port, reload=False)
 
 
 @app.command()

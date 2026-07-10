@@ -137,6 +137,11 @@ function createWindow() {
 
   mainWindow.loadURL(`http://localhost:${backendPort}`);
 
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[DevAgent] Page load failed: ${errorDescription} (code: ${errorCode}) URL: ${validatedURL}`);
+    mainWindow.webContents.loadURL(`data:text/html,<h2>DevAgent 加载失败</h2><p>${errorDescription}</p><p>后端地址: ${validatedURL}</p><p>请检查后端是否正常运行。</p>`);
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
