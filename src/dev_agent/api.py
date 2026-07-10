@@ -104,6 +104,30 @@ async def health():
     return HealthResponse()
 
 
+@app.get("/debug/webfiles")
+async def debug_web_files():
+    """调试接口：列出 WEB_DIR 路径和文件"""
+    web_path = str(WEB_DIR)
+    exists = WEB_DIR.exists()
+    index_exists = (WEB_DIR / "index.html").exists()
+    assets_exists = (WEB_DIR / "assets").exists()
+    files = []
+    if exists:
+        for f in sorted(WEB_DIR.rglob("*")):
+            if f.is_file():
+                files.append(str(f.relative_to(WEB_DIR)))
+    return {
+        "web_dir": web_path,
+        "exists": exists,
+        "index_html": index_exists,
+        "assets_dir": assets_exists,
+        "pyinstaller_frozen": getattr(sys, 'frozen', False),
+        "meipass": getattr(sys, '_MEIPASS', None),
+        "file_count": len(files),
+        "files": files[:50],
+    }
+
+
 # ── 对话接口 ──
 
 @app.post("/chat/stream")
