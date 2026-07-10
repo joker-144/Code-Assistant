@@ -28,10 +28,26 @@ if env_example.exists():
 
 # ── 隐藏导入（动态 import 的模块） ──
 hidden_imports = [
-    # dev-agent 内部动态导入
+    # dev-agent 内部（uvicorn.run("dev_agent.api:app") 字符串导入，需显式声明）
+    "dev_agent",
+    "dev_agent.api",
+    "dev_agent.config",
+    "dev_agent.desktop",
+    "dev_agent.agent",
     "dev_agent.agent.loop",
+    "dev_agent.agent.system_prompt",
+    "dev_agent.agent.reflection",
+    "dev_agent.agent.tools",
+    "dev_agent.agents",
+    "dev_agent.agents.orchestrator",
+    "dev_agent.agents.worker",
+    "dev_agent.memory",
     "dev_agent.memory.store",
+    "dev_agent.context",
     "dev_agent.context.index",
+    "dev_agent.context.manager",
+    "dev_agent.core",
+    "dev_agent.core.observability",
     # FastAPI 相关
     "fastapi",
     "uvicorn",
