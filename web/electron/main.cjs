@@ -132,7 +132,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, '../../public/icon.png'),
+    icon: path.join(__dirname, '../../public/log.ico'),
   });
 
   mainWindow.loadURL(`http://localhost:${backendPort}`);
