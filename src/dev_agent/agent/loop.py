@@ -408,11 +408,22 @@ class AgentLoop:
 def create_agent(
     workspace: Optional[Path] = None,
     conversation_id: Optional[str] = None,
+    llm_overrides: Optional[dict] = None,
 ) -> AgentLoop:
     """创建 Agent 实例（工厂函数）
 
     Args:
         workspace: 工作目录
         conversation_id: 对话 ID（传入已有 ID 可恢复上下文，但上下文本身在内存中）
+        llm_overrides: LLM 配置覆盖（api_key, base_url, model, temperature, max_tokens）
     """
-    return AgentLoop(workspace=workspace, conversation_id=conversation_id)
+    llm = None
+    if llm_overrides:
+        llm = LLMClient(
+            api_key=llm_overrides.get("api_key", ""),
+            base_url=llm_overrides.get("base_url", ""),
+            model=llm_overrides.get("model", ""),
+            temperature=llm_overrides.get("temperature"),
+            max_tokens=llm_overrides.get("max_tokens"),
+        )
+    return AgentLoop(workspace=workspace, conversation_id=conversation_id, llm=llm)

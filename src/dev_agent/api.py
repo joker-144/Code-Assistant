@@ -44,9 +44,18 @@ _MAX_AGENTS = 50  # 缓存上限，防止内存无限增长
 _agents: dict[str, "AgentLoop"] = {}
 
 
-def _get_or_create_agent(conversation_id: str | None = None):
-    """获取或创建 Agent（按 conversation_id 复用，保持多轮对话上下文）"""
+def _get_or_create_agent(conversation_id: str | None = None, settings: dict | None = None):
+    """获取或创建 Agent（按 conversation_id 复用，保持多轮对话上下文）
+
+    若传入 settings 覆盖，则始终新建 Agent（避免配置变更后复用旧 Agent）。
+    """
     from dev_agent.agent.loop import create_agent
+
+    # 有配置覆盖时，不复用，创建新 Agent
+    if settings:
+        agent = create_agent(workspace=Path.cwd(), conversation_id=conversation_id, llm_overrides=settings)
+        _agents[agent.conversation_id] = agent
+        return agent, agent.conversation_id
 
     if conversation_id and conversation_id in _agents:
         return _agents[conversation_id], conversation_id
@@ -67,6 +76,7 @@ def _get_or_create_agent(conversation_id: str | None = None):
 class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息", min_length=1)
     conversation_id: str | None = Field(None, description="对话 ID（首次对话不传，后续传入以保持上下文）")
+    settings: dict | None = Field(None, description="前端设置覆盖（api_key, base_url, model, temperature, max_tokens）")
 
 
 class HealthResponse(BaseModel):
@@ -143,7 +153,7 @@ async def chat_stream(req: ChatRequest):
 
     通过传入 conversation_id 实现多轮对话上下文保持。
     """
-    agent, conv_id = _get_or_create_agent(req.conversation_id)
+    agent, conv_id = _get_or_create_agent(req.conversation_id, req.settings)
 
     async def event_stream():
         try:

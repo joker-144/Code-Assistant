@@ -45,22 +45,29 @@ class LLMClient:
     通过 OpenAI 兼容协议接入 DeepSeek / Qwen / OpenAI 等服务商
     """
 
-    def __init__(self):
+    def __init__(self, *, api_key: str = "", base_url: str = "", model: str = "",
+                 temperature: float | None = None, max_tokens: int | None = None,
+                 timeout: float | None = None):
         config = get_config()
-        self.model = config.llm_chat_model
-        self.temperature = config.llm_chat_temperature
-        self.max_tokens = config.llm_chat_max_tokens
+        self.model = model or config.llm_chat_model
+        self.temperature = temperature if temperature is not None else config.llm_chat_temperature
+        self.max_tokens = max_tokens if max_tokens is not None else config.llm_chat_max_tokens
+        _api_key = api_key or config.llm_chat_api_key
+        _base_url = base_url or config.llm_chat_base_url
+        _timeout = timeout if timeout is not None else config.llm_chat_timeout
+        self._api_key = _api_key
+        self._base_url = _base_url
         # 同步客户端（用于简单调用 / 摘要）
         self._sync = OpenAI(
-            api_key=config.llm_chat_api_key,
-            base_url=config.llm_chat_base_url,
-            timeout=config.llm_chat_timeout,
+            api_key=_api_key,
+            base_url=_base_url,
+            timeout=_timeout,
         )
         # 异步客户端（用于 AgentLoop，不阻塞事件循环）
         self._async = AsyncOpenAI(
-            api_key=config.llm_chat_api_key,
-            base_url=config.llm_chat_base_url,
-            timeout=config.llm_chat_timeout,
+            api_key=_api_key,
+            base_url=_base_url,
+            timeout=_timeout,
         )
 
     # ── 基础文本对话 ──

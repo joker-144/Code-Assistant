@@ -60,9 +60,28 @@ export function useChat() {
 
   function streamChat(message) {
     return new Promise((resolve, reject) => {
+      // 读取前端设置并传递给后端
+      let settings = null
+      try {
+        const stored = localStorage.getItem('devagent-settings')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          settings = {
+            api_key: parsed.apiKeys?.[parsed.provider] || '',
+            base_url: parsed.baseUrl || '',
+            model: parsed.model || '',
+            temperature: parsed.temperature,
+            max_tokens: parsed.maxTokens,
+          }
+        }
+      } catch { /* ignore */ }
+
       const body = { message }
       if (conversationId.value) {
         body.conversation_id = conversationId.value
+      }
+      if (settings) {
+        body.settings = settings
       }
 
       fetch('/chat/stream', {

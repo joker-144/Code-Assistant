@@ -146,6 +146,13 @@ function createWindow() {
     mainWindow.show();
   });
 
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('maximize-change', true);
+  });
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('maximize-change', false);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

@@ -1,24 +1,100 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 
-const settings = ref({
-  apiKey: '',
-  model: 'deepseek-v3',
-  temperature: 0.3,
-  maxTokens: 4096,
-})
-
-const models = [
-  { value: 'deepseek-v3', label: 'DeepSeek V3' },
-  { value: 'deepseek-r1', label: 'DeepSeek R1' },
-  { value: 'qwen-max', label: 'Qwen Max' },
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'custom', label: '自定义...' },
+// ── 供应商定义 ──
+const providers = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    models: [
+      { value: 'deepseek-chat', label: 'DeepSeek V3 / DeepSeek Chat' },
+      { value: 'deepseek-reasoner', label: 'DeepSeek R1 / DeepSeek Reasoner' },
+    ],
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    models: [
+      { value: 'gpt-4o', label: 'GPT-4o' },
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+      { value: 'o3-mini', label: 'o3-mini' },
+    ],
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    defaultBaseUrl: 'https://api.anthropic.com/v1',
+    models: [
+      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+      { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+      { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+    ],
+  },
+  {
+    id: 'qwen',
+    name: '通义千问 (Qwen)',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: [
+      { value: 'qwen-max', label: 'Qwen Max' },
+      { value: 'qwen-plus', label: 'Qwen Plus' },
+      { value: 'qwen-turbo', label: 'Qwen Turbo' },
+      { value: 'qwen-coder-plus', label: 'Qwen Coder Plus' },
+    ],
+  },
+  {
+    id: 'zhipu',
+    name: '智谱 (GLM)',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: [
+      { value: 'glm-4-plus', label: 'GLM-4 Plus' },
+      { value: 'glm-4-flash', label: 'GLM-4 Flash' },
+      { value: 'glm-4-air', label: 'GLM-4 Air' },
+    ],
+  },
+  {
+    id: 'moonshot',
+    name: '月之暗面 (Moonshot)',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    models: [
+      { value: 'moonshot-v1-8k', label: 'Moonshot v1 8K' },
+      { value: 'moonshot-v1-32k', label: 'Moonshot v1 32K' },
+      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K' },
+    ],
+  },
+  {
+    id: 'custom',
+    name: '自定义接口',
+    defaultBaseUrl: '',
+    models: [],
+  },
 ]
 
+const DEFAULT_SETTINGS = {
+  provider: 'deepseek',
+  apiKeys: {},       // { providerId: 'sk-xxx' }
+  model: 'deepseek-chat',
+  baseUrl: 'https://api.deepseek.com/v1',
+  temperature: 0.3,
+  maxTokens: 4096,
+}
+
+const settings = ref(structuredClone(DEFAULT_SETTINGS))
 const saved = ref(false)
-const loading = ref(false)
+
+const activeProvider = computed(() => providers.find((p) => p.id === settings.value.provider))
+
+// provider 切换时自动同步 baseUrl 和 model
+watch(() => settings.value.provider, (newProviderId) => {
+  const p = providers.find((pr) => pr.id === newProviderId)
+  if (p && p.id !== 'custom') {
+    settings.value.baseUrl = p.defaultBaseUrl
+    settings.value.model = p.models[0]?.value || ''
+  }
+})
 
 // ── 版本更新状态 ──
 const currentVersion = ref('')
@@ -36,10 +112,12 @@ const isElectron = computed(() => !!window.electronAPI)
 
 onMounted(() => {
   try {
-    const saved = localStorage.getItem('devagent-settings')
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      Object.assign(settings.value, parsed)
+    const stored = localStorage.getItem('devagent-settings')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      // 合并：保留新增的默认字段
+      const merged = { ...structuredClone(DEFAULT_SETTINGS), ...parsed }
+      settings.value = merged
     }
   } catch { /* ignore */ }
 })
@@ -50,6 +128,11 @@ function saveSettings() {
   } catch { /* ignore */ }
   saved.value = true
   setTimeout(() => saved.value = false, 2000)
+}
+
+function resetSettings() {
+  settings.value = structuredClone(DEFAULT_SETTINGS)
+  saveSettings()
 }
 
 // ── 版本更新逻辑 ──
@@ -146,46 +229,121 @@ async function startUpdateBrowser() {
   <div class="settings">
     <header class="settings-header">
       <h1>设置</h1>
-      <p class="subtitle">配置模型、API Key 与参数</p>
+      <p class="subtitle">配置模型供应商、API Key 与参数</p>
     </header>
 
+    <!-- ── 模型供应商 ── -->
     <div class="form-section">
-      <h2>模型配置</h2>
+      <h2>API 供应商</h2>
+      <p class="section-desc">选择要使用的模型供应商，并提供对应的 API Key</p>
+
+      <div class="provider-grid">
+        <button
+          v-for="p in providers"
+          :key="p.id"
+          class="provider-card"
+          :class="{ active: settings.provider === p.id }"
+          @click="settings.provider = p.id"
+        >
+          <span class="provider-name">{{ p.name }}</span>
+          <span v-if="p.id !== 'custom'" class="provider-model-count">{{ p.models.length }} 个模型</span>
+        </button>
+      </div>
 
       <div class="form-group">
         <label>API Key</label>
         <div class="input-with-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <input v-model="settings.apiKey" type="password" placeholder="sk-..." />
+          <input
+            v-model="settings.apiKeys[settings.provider]"
+            type="password"
+            :placeholder="activeProvider?.id === 'custom' ? '输入完整 API Key' : `输入 ${activeProvider?.name} API Key`"
+          />
         </div>
         <p class="hint">API Key 仅保存在浏览器本地存储中，不会上传到服务器。</p>
       </div>
 
       <div class="form-group">
+        <label>API Base URL</label>
+        <div class="input-with-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" stroke="currentColor" stroke-width="2"/></svg>
+          <input
+            v-model="settings.baseUrl"
+            type="url"
+            placeholder="https://api.example.com/v1"
+          />
+        </div>
+        <p class="hint">API 端点地址。预设供应商会自动填充，切换供应商将覆盖自定义地址。</p>
+      </div>
+    </div>
+
+    <!-- ── 模型与参数 ── -->
+    <div class="form-section">
+      <h2>模型与参数</h2>
+
+      <div class="form-group">
         <label>模型选择</label>
         <div class="select-wrapper">
           <select v-model="settings.model">
-            <option v-for="m in models" :key="m.value" :value="m.value">{{ m.label }}</option>
+            <template v-if="activeProvider?.models?.length">
+              <option v-for="m in activeProvider.models" :key="m.value" :value="m.value">{{ m.label }}</option>
+            </template>
+            <template v-else>
+              <option value="">— 请先在下方输入自定义模型 —</option>
+            </template>
           </select>
           <svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </div>
       </div>
 
+      <div v-if="activeProvider?.id === 'custom'" class="form-group">
+        <label>自定义模型 ID</label>
+        <div class="input-with-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="2"/><path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input
+            v-model="settings.model"
+            type="text"
+            placeholder="如 gpt-4o, claude-3-sonnet..."
+          />
+        </div>
+      </div>
+
       <div class="form-group">
-        <label>Temperature ({{ settings.temperature }})</label>
-        <input v-model.number="settings.temperature" type="range" min="0" max="2" step="0.1" class="slider" />
-        <div class="range-labels"><span>精确 0</span><span>平衡 1.0</span><span>创造 2.0</span></div>
+        <label>Temperature <span class="param-value">({{ settings.temperature }})</span></label>
+        <div class="slider-row">
+          <span class="slider-end">0</span>
+          <input v-model.number="settings.temperature" type="range" min="0" max="2" step="0.1" class="slider" />
+          <span class="slider-end">2.0</span>
+        </div>
+        <div class="range-labels"><span>精确</span><span>平衡</span><span>创造</span></div>
         <p class="hint">越高越有创造性，越低越精确。代码生成建议 0.1-0.3。</p>
       </div>
 
       <div class="form-group">
         <label>最大 Token 数</label>
-        <input v-model.number="settings.maxTokens" type="number" min="512" max="32768" step="512" class="number-input" />
+        <div class="preset-row">
+          <button
+            v-for="n in [2048, 4096, 8192, 16384, 32768]"
+            :key="n"
+            class="preset-chip"
+            :class="{ active: settings.maxTokens === n }"
+            @click="settings.maxTokens = n"
+          >{{ n >= 1024 ? n / 1024 + 'K' : n }}</button>
+          <input
+            v-model.number="settings.maxTokens"
+            type="number"
+            min="512"
+            max="32768"
+            step="512"
+            class="number-input inline"
+            placeholder="自定义"
+          />
+        </div>
         <p class="hint">单次回复的最大 Token 数量，较大值适合长文档生成。</p>
       </div>
     </div>
 
-    <!-- 版本更新 -->
+    <!-- ── 版本更新 ── -->
     <div class="form-section">
       <h2>版本更新</h2>
 
@@ -238,26 +396,50 @@ async function startUpdateBrowser() {
       <button class="btn-save" @click="saveSettings" :class="{ saved }">
         {{ saved ? '已保存' : '保存设置' }}
       </button>
-      <button class="btn-reset" @click="settings.apiKey = ''; saveSettings()">
-        清除 API Key
+      <button class="btn-reset" @click="resetSettings">
+        恢复默认
       </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.settings { flex: 1; overflow-y: auto; padding: 32px; max-width: 640px; margin: 0 auto; }
+.settings { flex: 1; overflow-y: auto; padding: 32px; max-width: 680px; margin: 0 auto; }
 
 .settings-header { margin-bottom: 32px; }
 .settings-header h1 { font-size: 22px; font-weight: 700; color: var(--text-primary); }
 .subtitle { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
 
 .form-section { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; }
-.form-section h2 { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.form-section h2 { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.section-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.5; }
+
+/* ── 供应商卡片 ── */
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.provider-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px 16px;
+  cursor: pointer; transition: all var(--transition);
+  font-family: var(--font-sans); text-align: left;
+}
+.provider-card:hover { border-color: var(--accent-border); background: var(--bg-hover); }
+.provider-card.active {
+  border-color: var(--accent-border); background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-border);
+}
+.provider-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.provider-model-count { font-size: 11px; color: var(--text-faint); }
 
 .form-group { margin-bottom: 20px; }
 .form-group:last-child { margin-bottom: 0; }
 .form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 6px; }
+.param-value { font-weight: 400; color: var(--text-muted); }
 
 .input-with-icon {
   display: flex; align-items: center; gap: 10px;
@@ -285,14 +467,38 @@ select {
 select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--accent-soft); }
 .select-chevron { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
 
-.slider { width: 100%; appearance: none; height: 6px; background: var(--bg-card); border-radius: 3px; outline: none; margin: 10px 0 6px; }
+/* ── Temperature 滑块 ── */
+.slider-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
+}
+.slider-end { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); min-width: 24px; }
+.slider-row .slider { flex: 1; }
+.slider {
+  appearance: none; height: 6px; background: var(--bg-card); border-radius: 3px; outline: none;
+}
 .slider::-webkit-slider-thumb { appearance: none; width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; border: 2px solid var(--bg-surface); }
-.range-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-faint); }
+.range-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-faint); padding: 0 2px; }
 
+/* ── Token 预设芯片 ── */
+.preset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.preset-chip {
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-input);
+  color: var(--text-muted); font-family: var(--font-mono);
+  font-size: 12px; cursor: pointer; transition: all var(--transition);
+}
+.preset-chip:hover { border-color: var(--accent-border); color: var(--text-primary); }
+.preset-chip.active {
+  border-color: var(--accent-border); background: var(--accent-soft);
+  color: var(--accent); font-weight: 600;
+}
+.number-input.inline {
+  width: 90px; text-align: center; margin-left: auto;
+}
 .number-input {
-  width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+  background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-md); color: var(--text-primary);
-  font-family: var(--font-mono); font-size: 13px; padding: 11px 14px;
+  font-family: var(--font-mono); font-size: 13px; padding: 9px 14px;
   transition: border-color var(--transition);
 }
 .number-input:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--accent-soft); }
@@ -301,7 +507,6 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 .hint.warning { color: var(--text-muted); background: var(--bg-card); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 12px; }
 
 /* ── 版本更新 ── */
-
 .version-info { margin-bottom: 16px; }
 .version-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .version-label { font-size: 13px; color: var(--text-muted); }
@@ -361,5 +566,6 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 
 @media (max-width: 768px) {
   .settings { padding: 20px 14px; }
+  .provider-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
 </style>
