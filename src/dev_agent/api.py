@@ -81,7 +81,7 @@ class ChatRequest(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    version: str = "0.4.0"
+    version: str = __version__
 
 
 class ConversationCreate(BaseModel):
@@ -235,6 +235,93 @@ async def memory_stats():
 
 
 # ── 版本检查与更新接口 ──
+
+@app.get("/api/models")
+async def list_models(
+    provider: str = "",
+    api_key: str = "",
+    base_url: str = "",
+):
+    """获取指定供应商的真实模型列表
+
+    先尝试从供应商 API 实时拉取（GET {base_url}/models），
+    失败时回退到内置已知模型清单。
+    """
+    import httpx
+
+    # 内置已知模型列表（按供应商）
+    KNOWN_MODELS = {
+        "deepseek": [
+            {"id": "deepseek-chat", "name": "DeepSeek V3 / Chat"},
+            {"id": "deepseek-reasoner", "name": "DeepSeek R1 / Reasoner"},
+        ],
+        "openai": [
+            {"id": "gpt-4o", "name": "GPT-4o"},
+            {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
+            {"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
+            {"id": "gpt-4.1", "name": "GPT-4.1"},
+            {"id": "o3-mini", "name": "o3-mini"},
+            {"id": "o4-mini", "name": "o4-mini"},
+        ],
+        "anthropic": [
+            {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
+            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet"},
+            {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"},
+            {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+        ],
+        "qwen": [
+            {"id": "qwen-max", "name": "Qwen Max"},
+            {"id": "qwen-plus", "name": "Qwen Plus"},
+            {"id": "qwen-turbo", "name": "Qwen Turbo"},
+            {"id": "qwen-coder-plus", "name": "Qwen Coder Plus"},
+        ],
+        "zhipu": [
+            {"id": "glm-4-plus", "name": "GLM-4 Plus"},
+            {"id": "glm-4-flash", "name": "GLM-4 Flash"},
+            {"id": "glm-4-air", "name": "GLM-4 Air"},
+        ],
+        "moonshot": [
+            {"id": "moonshot-v1-8k", "name": "Moonshot v1 8K"},
+            {"id": "moonshot-v1-32k", "name": "Moonshot v1 32K"},
+            {"id": "moonshot-v1-128k", "name": "Moonshot v1 128K"},
+        ],
+    }
+
+    result = {
+        "models": [],
+        "source": "builtin",
+        "error": None,
+    }
+
+    # 尝试从供应商 API 实时拉取
+    if base_url and api_key:
+        try:
+            models_url = base_url.rstrip("/") + "/models"
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    models_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw_models = data.get("data", data.get("models", []))
+                    if isinstance(raw_models, list) and raw_models:
+                        result["models"] = [
+                            {"id": m.get("id", m) if isinstance(m, dict) else str(m),
+                             "name": m.get("id", m) if isinstance(m, dict) else str(m)}
+                            for m in raw_models
+                        ]
+                        result["source"] = "api"
+        except Exception as e:
+            result["error"] = str(e)
+
+    # 回退到内置列表
+    if not result["models"] and provider in KNOWN_MODELS:
+        result["models"] = KNOWN_MODELS[provider]
+        result["source"] = "builtin"
+
+    return result
+
 
 @app.get("/api/version/check")
 async def version_check():

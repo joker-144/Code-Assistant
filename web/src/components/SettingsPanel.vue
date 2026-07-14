@@ -7,69 +7,36 @@ const providers = [
     id: 'deepseek',
     name: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
-    models: [
-      { value: 'deepseek-chat', label: 'DeepSeek V3 / DeepSeek Chat' },
-      { value: 'deepseek-reasoner', label: 'DeepSeek R1 / DeepSeek Reasoner' },
-    ],
   },
   {
     id: 'openai',
     name: 'OpenAI',
     defaultBaseUrl: 'https://api.openai.com/v1',
-    models: [
-      { value: 'gpt-4o', label: 'GPT-4o' },
-      { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-      { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-      { value: 'o3-mini', label: 'o3-mini' },
-    ],
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
     defaultBaseUrl: 'https://api.anthropic.com/v1',
-    models: [
-      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-      { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-      { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-      { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
-    ],
   },
   {
     id: 'qwen',
     name: '通义千问 (Qwen)',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    models: [
-      { value: 'qwen-max', label: 'Qwen Max' },
-      { value: 'qwen-plus', label: 'Qwen Plus' },
-      { value: 'qwen-turbo', label: 'Qwen Turbo' },
-      { value: 'qwen-coder-plus', label: 'Qwen Coder Plus' },
-    ],
   },
   {
     id: 'zhipu',
     name: '智谱 (GLM)',
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    models: [
-      { value: 'glm-4-plus', label: 'GLM-4 Plus' },
-      { value: 'glm-4-flash', label: 'GLM-4 Flash' },
-      { value: 'glm-4-air', label: 'GLM-4 Air' },
-    ],
   },
   {
     id: 'moonshot',
     name: '月之暗面 (Moonshot)',
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
-    models: [
-      { value: 'moonshot-v1-8k', label: 'Moonshot v1 8K' },
-      { value: 'moonshot-v1-32k', label: 'Moonshot v1 32K' },
-      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K' },
-    ],
   },
   {
     id: 'custom',
     name: '自定义接口',
     defaultBaseUrl: '',
-    models: [],
   },
 ]
 
@@ -87,13 +54,61 @@ const saved = ref(false)
 
 const activeProvider = computed(() => providers.find((p) => p.id === settings.value.provider))
 
-// provider 切换时自动同步 baseUrl 和 model
+// 动态模型列表（从后端 API 获取）
+const providerModels = ref([])
+const modelsLoading = ref(false)
+const modelsSource = ref('')
+
+async function fetchModels(provider, apiKey, baseUrl) {
+  if (!provider || provider === 'custom') {
+    providerModels.value = []
+    modelsSource.value = ''
+    return
+  }
+
+  modelsLoading.value = true
+  try {
+    const params = new URLSearchParams({ provider })
+    if (apiKey) params.set('api_key', apiKey)
+    if (baseUrl) params.set('base_url', baseUrl)
+
+    const resp = await fetch(`/api/models?${params}`)
+    const data = await resp.json()
+
+    providerModels.value = (data.models || []).map(m => ({
+      value: m.id,
+      label: m.name || m.id,
+    }))
+    modelsSource.value = data.source || 'builtin'
+
+    // 如果当前选中的模型不在新列表中，自动选第一个
+    if (providerModels.value.length && !providerModels.value.find(m => m.value === settings.value.model)) {
+      settings.value.model = providerModels.value[0].value
+    }
+  } catch (e) {
+    providerModels.value = [{ value: '', label: `加载失败: ${e.message}` }]
+    modelsSource.value = 'error'
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+// provider 切换时自动同步 baseUrl + 拉取模型
 watch(() => settings.value.provider, (newProviderId) => {
   const p = providers.find((pr) => pr.id === newProviderId)
   if (p && p.id !== 'custom') {
     settings.value.baseUrl = p.defaultBaseUrl
-    settings.value.model = p.models[0]?.value || ''
   }
+  fetchModels(newProviderId, settings.value.apiKeys[newProviderId], settings.value.baseUrl)
+})
+
+// 当 API Key 或 Base URL 变更时重新拉取模型（防抖 800ms）
+let modelFetchTimer = null
+watch([() => settings.value.apiKeys[settings.value.provider], () => settings.value.baseUrl], () => {
+  clearTimeout(modelFetchTimer)
+  modelFetchTimer = setTimeout(() => {
+    fetchModels(settings.value.provider, settings.value.apiKeys[settings.value.provider], settings.value.baseUrl)
+  }, 800)
 })
 
 // ── 版本更新状态 ──
@@ -120,6 +135,9 @@ onMounted(() => {
       settings.value = merged
     }
   } catch { /* ignore */ }
+
+  // 初始化时拉取当前供应商的模型列表
+  fetchModels(settings.value.provider, settings.value.apiKeys[settings.value.provider], settings.value.baseUrl)
 })
 
 function saveSettings() {
@@ -246,7 +264,7 @@ async function startUpdateBrowser() {
           @click="settings.provider = p.id"
         >
           <span class="provider-name">{{ p.name }}</span>
-          <span v-if="p.id !== 'custom'" class="provider-model-count">{{ p.models.length }} 个模型</span>
+          <span v-if="p.id !== 'custom'" class="provider-model-count">{{ providerModels.length || '...' }} 个模型</span>
         </button>
       </div>
 
@@ -282,14 +300,18 @@ async function startUpdateBrowser() {
       <h2>模型与参数</h2>
 
       <div class="form-group">
-        <label>模型选择</label>
+        <label>模型选择
+          <span v-if="modelsLoading" class="models-status loading">加载中...</span>
+          <span v-else-if="modelsSource === 'api'" class="models-status api">实时</span>
+          <span v-else-if="modelsSource === 'builtin'" class="models-status builtin">内置</span>
+        </label>
         <div class="select-wrapper">
-          <select v-model="settings.model">
-            <template v-if="activeProvider?.models?.length">
-              <option v-for="m in activeProvider.models" :key="m.value" :value="m.value">{{ m.label }}</option>
+          <select v-model="settings.model" :disabled="modelsLoading">
+            <template v-if="providerModels.length">
+              <option v-for="m in providerModels" :key="m.value" :value="m.value">{{ m.label }}</option>
             </template>
             <template v-else>
-              <option value="">— 请先在下方输入自定义模型 —</option>
+              <option value="">— 加载中... —</option>
             </template>
           </select>
           <svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -505,6 +527,14 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 
 .hint { font-size: 11px; color: var(--text-faint); margin-top: 6px; line-height: 1.5; }
 .hint.warning { color: var(--text-muted); background: var(--bg-card); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 12px; }
+
+.models-status {
+  font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 3px;
+  margin-left: 6px; vertical-align: middle;
+}
+.models-status.loading { background: var(--bg-card); color: var(--text-muted); }
+.models-status.api { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.models-status.builtin { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
 
 /* ── 版本更新 ── */
 .version-info { margin-bottom: 16px; }

@@ -181,6 +181,46 @@ ipcMain.handle('window-is-maximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
 });
 
+ipcMain.handle('check-version', async () => {
+  try {
+    const http = require('http');
+    return await new Promise((resolve, reject) => {
+      http.get(`http://localhost:${backendPort}/api/version/check`, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch { reject(new Error('Invalid response')); }
+        });
+      }).on('error', reject);
+    });
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('update-version', async () => {
+  try {
+    const http = require('http');
+    return await new Promise((resolve, reject) => {
+      const req = http.request(`http://localhost:${backendPort}/api/version/update`, {
+        method: 'POST',
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch { resolve({ success: false, error: data }); }
+        });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 app.whenReady().then(async () => {
   try {
     await startBackend();
