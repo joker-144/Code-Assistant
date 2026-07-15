@@ -196,22 +196,22 @@ function shortLabel(modelId) {
     </div>
     <div class="input-hint">
       <span class="hint-left"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
-      <span class="hint-right">DevAgent · 编码智能体</span>
+      <span class="hint-right">可随时切换模型</span>
     </div>
   </div>
 </template>
 
 <style scoped>
-.input-area { padding: 8px 0; }
+.input-area { padding: 6px 0; }
 
 .input-shell {
   position: relative;
   display: flex; align-items: flex-end;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 4px 8px 4px 12px;
-  transition: all 0.2s ease;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px 3px 12px;
+  transition: all 0.2s var(--ease-out-expo);
   box-shadow: var(--shadow-sm);
 }
 .input-area.focused .input-shell {
@@ -220,23 +220,23 @@ function shortLabel(modelId) {
 }
 
 .input-prefix {
-  display: flex; align-items: center; padding-bottom: 8px; flex-shrink: 0;
-  margin-right: 6px;
+  display: flex; align-items: center; padding-bottom: 7px; flex-shrink: 0;
+  margin-right: 5px;
 }
 .prefix-label {
-  font-family: var(--font-mono); font-size: 15px; font-weight: 700;
-  color: var(--accent); opacity: 0.8;
+  font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+  color: var(--accent); opacity: 0.85;
 }
 
 /* ── 模型选择器 ── */
-.model-selector { flex-shrink: 0; padding-bottom: 4px; margin-right: 2px; }
+.model-selector { flex-shrink: 0; padding-bottom: 3px; margin-right: 2px; }
 
 .model-chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  height: 28px; padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 27px; padding: 0 9px;
   background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: pointer; font-family: var(--font-mono); font-size: 11px;
+  border-radius: var(--radius-xs);
+  cursor: pointer; font-family: var(--font-mono); font-size: 10.5px;
   color: var(--text-muted); transition: all var(--transition);
   white-space: nowrap; user-select: none;
 }
@@ -245,11 +245,11 @@ function shortLabel(modelId) {
   background: var(--bg-hover);
 }
 .model-chip-dot {
-  width: 6px; height: 6px; border-radius: 50%;
+  width: 5px; height: 5px; border-radius: 50%;
   background: var(--accent); flex-shrink: 0;
 }
 .model-chip-text {
-  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .model-chip-chevron {
   flex-shrink: 0; color: var(--text-faint); transition: transform var(--transition);
@@ -259,7 +259,7 @@ function shortLabel(modelId) {
 /* ── 下拉面板 ── */
 .model-picker {
   position: absolute; top: calc(100% + 6px); left: 48px;
-  width: 300px; max-height: 380px;
+  width: 290px; max-height: 380px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -268,37 +268,37 @@ function shortLabel(modelId) {
   display: flex; flex-direction: column;
 }
 .picker-header {
-  font-size: 10px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.5px; color: var(--text-muted);
-  padding: 10px 14px 6px; border-bottom: 1px solid var(--border-light);
+  font-size: 9.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
+  padding: 10px 14px 5px; border-bottom: 1px solid var(--border-light);
 }
-.picker-list { flex: 1; overflow-y: auto; padding: 4px; max-height: 220px; }
+.picker-list { flex: 1; overflow-y: auto; padding: 4px; max-height: 200px; }
 .picker-option {
   display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 7px 10px; background: none; border: none;
+  width: 100%; padding: 6px 10px; background: none; border: none;
   border-radius: var(--radius-sm); cursor: pointer;
-  font-family: var(--font-mono); font-size: 12px;
+  font-family: var(--font-mono); font-size: 11.5px;
   color: var(--text-secondary); text-align: left;
   transition: all var(--transition);
 }
 .picker-option:hover { background: var(--bg-hover); color: var(--text-primary); }
 .picker-option.active { background: var(--accent-soft); color: var(--accent); }
-.option-check { width: 16px; flex-shrink: 0; font-size: 11px; }
+.option-check { width: 14px; flex-shrink: 0; font-size: 10px; }
 
 .picker-empty {
   padding: 20px 14px; text-align: center;
-  font-size: 12px; color: var(--text-faint);
+  font-size: 11px; color: var(--text-faint);
 }
 
 .picker-footer {
   border-top: 1px solid var(--border-light);
-  padding: 8px;
+  padding: 7px;
 }
 .picker-custom-row {
-  display: flex; gap: 6px; margin-bottom: 6px;
+  display: flex; gap: 5px; margin-bottom: 5px;
 }
 .picker-custom-input {
-  flex: 1; height: 30px; padding: 0 10px;
+  flex: 1; height: 28px; padding: 0 9px;
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary); font-family: var(--font-mono); font-size: 11px;
@@ -307,7 +307,7 @@ function shortLabel(modelId) {
 .picker-custom-input:focus { border-color: var(--accent-border); }
 .picker-custom-input::placeholder { color: var(--text-faint); }
 .picker-custom-btn {
-  height: 30px; padding: 0 12px;
+  height: 28px; padding: 0 11px;
   background: var(--accent); color: white; border: none;
   border-radius: var(--radius-sm); font-size: 11px; font-weight: 600;
   cursor: pointer; transition: background var(--transition); flex-shrink: 0;
@@ -316,7 +316,7 @@ function shortLabel(modelId) {
 
 .picker-settings-link {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 10px; background: none; border: none;
+  padding: 5px 9px; background: none; border: none;
   border-radius: var(--radius-sm); cursor: pointer;
   font-size: 11px; color: var(--text-muted);
   transition: all var(--transition); width: 100%;
@@ -324,7 +324,7 @@ function shortLabel(modelId) {
 .picker-settings-link:hover { background: var(--bg-hover); color: var(--text-secondary); }
 
 /* ── 下拉动画 ── */
-.picker-fade-enter-active { transition: all 0.15s ease-out; }
+.picker-fade-enter-active { transition: all 0.15s var(--ease-out-expo); }
 .picker-fade-leave-active { transition: all 0.1s ease-in; }
 .picker-fade-enter-from,
 .picker-fade-leave-to {
@@ -335,34 +335,36 @@ function shortLabel(modelId) {
 textarea {
   flex: 1; background: none; border: none; outline: none;
   color: var(--text-primary); font-family: var(--font-mono);
-  font-size: 13px; line-height: 1.6; padding: 8px 0;
-  resize: none; min-height: 22px; max-height: 180px;
+  font-size: 12.5px; line-height: 1.6; padding: 7px 0;
+  resize: none; min-height: 20px; max-height: 180px;
 }
 textarea::placeholder { color: var(--text-faint); font-family: var(--font-sans); }
 textarea:disabled { color: var(--text-muted); }
 
-.input-actions { display: flex; align-items: center; gap: 6px; padding-bottom: 4px; flex-shrink: 0; }
-.char-count { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+.input-actions { display: flex; align-items: center; gap: 5px; padding-bottom: 3px; flex-shrink: 0; }
+.char-count { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); }
 
 .send-btn {
-  width: 32px; height: 32px; background: var(--accent);
-  border: none; border-radius: 8px; cursor: pointer;
+  width: 30px; height: 30px; background: var(--accent);
+  border: none; border-radius: 7px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: white; flex-shrink: 0; transition: all 0.15s ease;
+  color: white; flex-shrink: 0; transition: all 0.16s var(--ease-spring);
 }
-.send-btn:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.06); }
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover); transform: scale(1.07);
+}
 .send-btn:active:not(:disabled) { transform: scale(0.94); }
 .send-btn:disabled { background: var(--bg-hover); color: var(--text-faint); cursor: not-allowed; }
 
 .input-hint {
   display: flex; align-items: center; justify-content: space-between;
-  margin-top: 7px; font-size: 10px; color: var(--text-faint); padding: 0 4px;
+  margin-top: 6px; font-size: 9.5px; color: var(--text-faint); padding: 0 4px;
 }
 kbd {
-  display: inline-block; padding: 1px 5px;
-  font-family: var(--font-mono); font-size: 9px; line-height: 1.4;
+  display: inline-block; padding: 1px 4px;
+  font-family: var(--font-mono); font-size: 8.5px; line-height: 1.4;
   color: var(--text-muted); background: var(--bg-card);
-  border: 1px solid var(--border); border-radius: 3px;
+  border: 1px solid var(--border); border-radius: 2.5px;
 }
-.hint-right { color: var(--text-faint); opacity: 0.6; }
+.hint-right { color: var(--text-faint); opacity: 0.5; }
 </style>

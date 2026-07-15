@@ -76,81 +76,85 @@ function copyResult() {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  margin: 6px 0 6px 32px;
+  margin: 4px 0 4px 26px;
   overflow: hidden;
-  transition: all var(--transition);
-  animation: slideInRight 0.25s ease;
+  transition: all 0.16s var(--ease-out-expo);
+  animation: slideInRight 0.22s var(--ease-out-expo);
 }
-.tool-call:hover { border-color: var(--text-muted); }
-.tool-call.expanded { border-color: var(--accent-border); box-shadow: 0 0 0 1px var(--accent-soft); }
-.tool-call.error { border-left: 3px solid var(--error); }
+.tool-call:hover { border-color: var(--border-strong); }
+.tool-call.expanded {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+.tool-call.error { border-left: 2px solid var(--error); }
 
 .tool-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 9px; cursor: pointer; user-select: none;
 }
 .tool-header:hover { background: var(--bg-hover); }
 
 .tool-badge {
-  width: 22px; height: 22px; border-radius: 4px;
+  width: 19px; height: 19px; border-radius: 4px;
   display: flex; align-items: center; justify-content: center;
-  color: white; font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+  color: white; font-size: 8.5px; font-weight: 700; font-family: var(--font-mono);
   flex-shrink: 0;
 }
 
 .tool-name {
-  font-size: 12px; font-weight: 600; color: var(--text-primary);
+  font-size: 10.5px; font-weight: 600; color: var(--text-primary);
   font-family: var(--font-mono); flex-shrink: 0;
+  letter-spacing: 0.01em;
 }
 .tool-call.error .tool-name { color: var(--error); }
 
 .tool-desc {
-  font-size: 11px; color: var(--text-muted);
+  font-size: 10px; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
 }
 
-.tool-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tool-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 
 .tool-spinner {
-  width: 12px; height: 12px; border: 2px solid var(--border);
+  width: 10px; height: 10px; border: 1.5px solid var(--border);
   border-top-color: var(--accent); border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
 
-.tool-done { color: var(--success); font-size: 12px; }
+.tool-done { color: var(--success); font-size: 10.5px; }
 
-.chevron { color: var(--text-muted); transition: transform var(--transition); }
+.chevron { color: var(--text-faint); transition: transform 0.16s var(--ease-out-expo); }
 .chevron.rotated { transform: rotate(180deg); }
 
-.tool-body { padding: 0 12px 12px; }
+.tool-body { padding: 0 9px 9px; }
 
-.tool-section { margin-top: 8px; }
+.tool-section { margin-top: 5px; }
 
 .section-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .section-label {
-  font-size: 10px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-faint);
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--text-faint);
 }
 
 .copy-btn {
-  font-size: 10px; color: var(--text-muted);
+  font-size: 9px; color: var(--text-muted);
   background: var(--bg-hover); border: 1px solid var(--border);
-  padding: 2px 8px; border-radius: 4px; cursor: pointer;
-  transition: all var(--transition); font-family: var(--font-sans);
+  padding: 1px 6px; border-radius: 2.5px; cursor: pointer;
+  transition: all 0.15s var(--ease-out-expo); font-family: var(--font-sans);
 }
-.copy-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
 .copy-btn.copied { color: var(--success); border-color: var(--success); }
 
 .code-block {
-  background: var(--bg-code); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 10px 12px;
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
-  overflow-x: auto; max-height: 320px; overflow-y: auto;
+  background: var(--bg-code); border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm); padding: 7px 9px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+  overflow-x: auto; max-height: 240px; overflow-y: auto;
   white-space: pre-wrap; word-break: break-all;
-  line-height: 1.7;
+  line-height: 1.6;
 }
 </style>

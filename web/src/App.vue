@@ -75,23 +75,25 @@ onMounted(() => { reset() })
 
 <style scoped>
 .app-shell { height: 100vh; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; }
-.app-body { flex: 1; display: flex; overflow: hidden; }
-.main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-base); }
 
-.chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.messages { flex: 1; overflow-y: auto; padding: 0 32px; }
+.app-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+.main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-base); position: relative; min-width: 0; }
+
+.chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.messages { flex: 1; overflow-y: auto; padding: 0 28px; scroll-behavior: smooth; }
 .messages-inner {
-  max-width: 820px; margin: 0 auto;
-  padding: 28px 0; display: flex; flex-direction: column; gap: 22px;
+  max-width: 760px; margin: 0 auto;
+  padding: 18px 0; display: flex; flex-direction: column; gap: 16px;
 }
 .input-section {
-  flex-shrink: 0; padding: 0 32px 20px;
-  background: linear-gradient(to top, var(--bg-base) 80%, transparent);
+  flex-shrink: 0; padding: 0 28px 14px;
+  background: linear-gradient(to top, var(--bg-base) 75%, transparent);
 }
-.input-section :deep(.input-area) { max-width: 820px; margin: 0 auto; }
+.input-section :deep(.input-area) { max-width: 760px; margin: 0 auto; }
 
 @media (max-width: 1000px) {
-  .messages { padding: 0 20px; }
-  .input-section { padding: 0 20px 14px; }
+  .messages { padding: 0 18px; }
+  .input-section { padding: 0 18px 12px; }
+  .messages-inner { gap: 14px; }
 }
 </style>

@@ -96,40 +96,98 @@ const renderedContent = computed(() => {
 </template>
 
 <style scoped>
-.message { animation: fadeIn 0.3s ease forwards; opacity: 0; }
+.message { animation: fadeIn 0.3s var(--ease-out-expo) forwards; opacity: 0; }
 
-.user-bubble { max-width: 75%; margin-left: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 4px var(--radius-lg); padding: 12px 16px; }
-.user-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; }
-.user-content { font-size: 14px; color: var(--text-primary); line-height: 1.6; }
+.user-bubble {
+  max-width: 76%; margin-left: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px 12px 4px 12px;
+  padding: 8px 13px;
+  box-shadow: var(--shadow-xs);
+}
+.user-label {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 9.5px; font-weight: 600; color: var(--text-faint);
+  margin-bottom: 3px; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.user-content {
+  font-size: 12.5px; color: var(--text-primary); line-height: 1.65;
+}
 
 .assistant-block { width: 100%; }
-.assistant-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.avatar { width: 24px; height: 24px; background: linear-gradient(135deg, #2563eb, #7c3aed); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; }
-.assistant-label span { font-size: 12px; font-weight: 600; color: var(--accent); }
-.assistant-content { font-size: 14px; line-height: 1.7; color: var(--text-secondary); padding-left: 32px; }
+.assistant-label {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 6px;
+}
+.avatar {
+  width: 19px; height: 19px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  border-radius: 4.5px;
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  box-shadow: 0 1px 4px rgba(88,166,255,0.18);
+}
+.assistant-label span {
+  font-size: 10.5px; font-weight: 600; color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.assistant-content {
+  font-size: 12.5px; line-height: 1.72; color: var(--text-secondary);
+  padding-left: 26px;
+}
 
 /* Markdown */
-.markdown :deep(h1),.markdown :deep(h2),.markdown :deep(h3) { color: var(--text-primary); font-weight: 600; margin: 16px 0 8px; }
-.markdown :deep(h1) { font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-.markdown :deep(h2) { font-size: 17px; }
-.markdown :deep(h3) { font-size: 15px; }
-.markdown :deep(p) { margin: 6px 0; }
-.markdown :deep(ul),.markdown :deep(ol) { margin: 6px 0; padding-left: 20px; }
+.markdown :deep(h1),.markdown :deep(h2),.markdown :deep(h3) {
+  color: var(--text-primary); font-weight: 600; margin: 14px 0 6px;
+  letter-spacing: -0.01em;
+}
+.markdown :deep(h1) { font-size: 17px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.markdown :deep(h2) { font-size: 14.5px; }
+.markdown :deep(h3) { font-size: 13.5px; }
+.markdown :deep(p) { margin: 5px 0; }
+.markdown :deep(ul),.markdown :deep(ol) { margin: 5px 0; padding-left: 18px; }
 .markdown :deep(li) { margin: 2px 0; }
-.markdown :deep(pre) { background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; margin: 10px 0; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+.markdown :deep(strong) { color: var(--text-primary); font-weight: 600; }
+.markdown :deep(pre) {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 11px 13px; margin: 8px 0; overflow-x: auto;
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.62;
+}
 .markdown :deep(pre code) { background: none; padding: 0; color: var(--text-primary); }
-.markdown :deep(code) { font-family: var(--font-mono); background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--accent); }
+.markdown :deep(code) {
+  font-family: var(--font-mono); background: var(--bg-card);
+  padding: 1px 5px; border-radius: 3px; font-size: 11px;
+  color: var(--accent); border: 1px solid var(--border-light);
+}
 .markdown :deep(a) { color: var(--accent); text-decoration: none; }
 .markdown :deep(a:hover) { text-decoration: underline; }
-.markdown :deep(blockquote) { border-left: 3px solid var(--accent-border); padding-left: 12px; margin: 8px 0; color: var(--text-muted); }
-.markdown :deep(table) { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
-.markdown :deep(th),.markdown :deep(td) { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
-.markdown :deep(th) { background: var(--bg-card); font-weight: 600; color: var(--text-primary); }
+.markdown :deep(blockquote) {
+  border-left: 2px solid var(--accent-border);
+  padding-left: 10px; margin: 6px 0; color: var(--text-muted);
+}
+.markdown :deep(table) {
+  border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px;
+}
+.markdown :deep(th),.markdown :deep(td) {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+}
+.markdown :deep(th) {
+  background: var(--bg-card); font-weight: 600; color: var(--text-primary);
+}
 .markdown :deep(td) { color: var(--text-secondary); }
 
 /* 打字指示器 */
-.typing { display: flex; align-items: center; gap: 5px; padding: 8px 32px; }
-.typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); animation: pulse 1.4s ease-in-out infinite; }
+.typing {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 26px;
+}
+.typing span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-muted);
+  animation: pulse 1.4s ease-in-out infinite;
+}
 .typing span:nth-child(2) { animation-delay: 0.2s; }
 .typing span:nth-child(3) { animation-delay: 0.4s; }
 </style>

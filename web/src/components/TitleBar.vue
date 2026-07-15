@@ -50,27 +50,27 @@ onMounted(() => {
 
 <style scoped>
 .titlebar {
-  height: 38px; flex-shrink: 0;
+  height: 32px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-light);
   -webkit-app-region: drag;
   user-select: none;
 }
 
 .titlebar-drag {
-  display: flex; align-items: center; gap: 8px;
-  padding-left: 14px;
+  display: flex; align-items: center; gap: 7px;
+  padding-left: 11px;
 }
 
 .titlebar-logo {
-  width: 22px; height: 22px;
+  width: 16px; height: 16px;
   background: var(--bg-elevated);
-  border-radius: 5px; display: flex; align-items: center; justify-content: center;
+  border-radius: 3.5px; display: flex; align-items: center; justify-content: center;
 }
 
 .titlebar-text {
-  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  font-size: 11px; font-weight: 550; color: var(--text-muted);
   letter-spacing: 0.02em;
 }
 
@@ -79,11 +79,11 @@ onMounted(() => {
 }
 
 .ctrl-btn {
-  width: 46px; height: 38px; border: none; background: transparent;
-  color: var(--text-muted); cursor: pointer;
+  width: 38px; height: 32px; border: none; background: transparent;
+  color: var(--text-faint); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.ctrl-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.ctrl-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
 .ctrl-close:hover { background: #e81123; color: white; }
 </style>
