@@ -1,13 +1,97 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({ disabled: { type: Boolean, default: false } })
-const emit = defineEmits(['send'])
+const emit = defineEmits(['send', 'open-settings'])
 
 const text = ref('')
 const textareaRef = ref(null)
 const focused = ref(false)
 
+// ── 模型选择器 ──
+const currentModel = ref('')
+const currentProvider = ref('deepseek')
+const models = ref([])
+const showModelPicker = ref(false)
+const customModelInput = ref('')
+const pickerRef = ref(null)
+
+function loadSettings() {
+  try {
+    const stored = localStorage.getItem('devagent-settings')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      currentModel.value = parsed.model || ''
+      currentProvider.value = parsed.provider || 'deepseek'
+    }
+  } catch { /* ignore */ }
+}
+
+function loadModels() {
+  try {
+    const cached = localStorage.getItem('devagent-models-cache')
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      models.value = parsed[currentProvider.value] || []
+    }
+  } catch { /* ignore */ }
+}
+
+function selectModel(modelId) {
+  if (!modelId) return
+  try {
+    const stored = localStorage.getItem('devagent-settings')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      parsed.model = modelId
+      localStorage.setItem('devagent-settings', JSON.stringify(parsed))
+    }
+  } catch { /* ignore */ }
+  currentModel.value = modelId
+  showModelPicker.value = false
+}
+
+function useCustomModel() {
+  const val = customModelInput.value.trim()
+  if (val) {
+    selectModel(val)
+    customModelInput.value = ''
+  }
+}
+
+function toggleModelPicker() {
+  if (showModelPicker.value) {
+    showModelPicker.value = false
+  } else {
+    loadSettings()
+    loadModels()
+    showModelPicker.value = true
+  }
+}
+
+function handleModelKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); useCustomModel() }
+  if (e.key === 'Escape') { showModelPicker.value = false }
+}
+
+// 点击外部关闭
+function handleClickOutside(e) {
+  if (pickerRef.value && !pickerRef.value.contains(e.target)) {
+    showModelPicker.value = false
+  }
+}
+
+onMounted(() => {
+  loadSettings()
+  loadModels()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
+
+// ── 原有逻辑 ──
 function autoResize() {
   const el = textareaRef.value
   if (!el) return
@@ -27,6 +111,17 @@ function submit() {
   text.value = ''
   nextTick(autoResize)
 }
+
+function goSettings() {
+  showModelPicker.value = false
+  emit('open-settings')
+}
+
+// 截断显示
+function shortLabel(modelId) {
+  if (!modelId) return '未选择'
+  return modelId.length > 28 ? modelId.slice(0, 26) + '…' : modelId
+}
 </script>
 
 <template>
@@ -35,6 +130,55 @@ function submit() {
       <div class="input-prefix">
         <span class="prefix-label">></span>
       </div>
+
+      <!-- 模型选择器 -->
+      <div class="model-selector" ref="pickerRef">
+        <button class="model-chip" @click="toggleModelPicker" title="切换模型">
+          <span class="model-chip-dot"></span>
+          <span class="model-chip-text">{{ shortLabel(currentModel) }}</span>
+          <svg class="model-chip-chevron" :class="{ open: showModelPicker }" width="10" height="10" viewBox="0 0 24 24" fill="none">
+            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+
+        <transition name="picker-fade">
+          <div v-if="showModelPicker" class="model-picker">
+            <div class="picker-header">当前供应商模型</div>
+            <div v-if="models.length" class="picker-list">
+              <button
+                v-for="m in models"
+                :key="m.value"
+                class="picker-option"
+                :class="{ active: m.value === currentModel }"
+                @click="selectModel(m.value)"
+              >
+                <span class="option-check">{{ m.value === currentModel ? '✓' : '' }}</span>
+                <span class="option-label">{{ m.label }}</span>
+              </button>
+            </div>
+            <div v-else class="picker-empty">暂无模型缓存，请先在设置中配置</div>
+            <div class="picker-footer">
+              <div class="picker-custom-row">
+                <input
+                  v-model="customModelInput"
+                  class="picker-custom-input"
+                  placeholder="自定义模型 ID…"
+                  @keydown="handleModelKeydown"
+                />
+                <button class="picker-custom-btn" @click="useCustomModel">确定</button>
+              </div>
+              <button class="picker-settings-link" @click="goSettings">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                  <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                模型设置
+              </button>
+            </div>
+          </div>
+        </transition>
+      </div>
+
       <textarea
         ref="textareaRef" v-model="text" :disabled="disabled"
         placeholder="输入指令或描述需求… (Enter 发送 · Shift+Enter 换行 · Esc 退出)" rows="1"
@@ -61,6 +205,7 @@ function submit() {
 .input-area { padding: 8px 0; }
 
 .input-shell {
+  position: relative;
   display: flex; align-items: flex-end;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -83,6 +228,110 @@ function submit() {
   color: var(--accent); opacity: 0.8;
 }
 
+/* ── 模型选择器 ── */
+.model-selector { flex-shrink: 0; padding-bottom: 4px; margin-right: 2px; }
+
+.model-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 10px;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer; font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted); transition: all var(--transition);
+  white-space: nowrap; user-select: none;
+}
+.model-chip:hover {
+  border-color: var(--accent-border); color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.model-chip-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); flex-shrink: 0;
+}
+.model-chip-text {
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.model-chip-chevron {
+  flex-shrink: 0; color: var(--text-faint); transition: transform var(--transition);
+}
+.model-chip-chevron.open { transform: rotate(180deg); }
+
+/* ── 下拉面板 ── */
+.model-picker {
+  position: absolute; top: calc(100% + 6px); left: 48px;
+  width: 300px; max-height: 380px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 100; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.picker-header {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-muted);
+  padding: 10px 14px 6px; border-bottom: 1px solid var(--border-light);
+}
+.picker-list { flex: 1; overflow-y: auto; padding: 4px; max-height: 220px; }
+.picker-option {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px; background: none; border: none;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-secondary); text-align: left;
+  transition: all var(--transition);
+}
+.picker-option:hover { background: var(--bg-hover); color: var(--text-primary); }
+.picker-option.active { background: var(--accent-soft); color: var(--accent); }
+.option-check { width: 16px; flex-shrink: 0; font-size: 11px; }
+
+.picker-empty {
+  padding: 20px 14px; text-align: center;
+  font-size: 12px; color: var(--text-faint);
+}
+
+.picker-footer {
+  border-top: 1px solid var(--border-light);
+  padding: 8px;
+}
+.picker-custom-row {
+  display: flex; gap: 6px; margin-bottom: 6px;
+}
+.picker-custom-input {
+  flex: 1; height: 30px; padding: 0 10px;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 11px;
+  outline: none; transition: border-color var(--transition);
+}
+.picker-custom-input:focus { border-color: var(--accent-border); }
+.picker-custom-input::placeholder { color: var(--text-faint); }
+.picker-custom-btn {
+  height: 30px; padding: 0 12px;
+  background: var(--accent); color: white; border: none;
+  border-radius: var(--radius-sm); font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: background var(--transition); flex-shrink: 0;
+}
+.picker-custom-btn:hover { background: var(--accent-hover); }
+
+.picker-settings-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 10px; background: none; border: none;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 11px; color: var(--text-muted);
+  transition: all var(--transition); width: 100%;
+}
+.picker-settings-link:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+/* ── 下拉动画 ── */
+.picker-fade-enter-active { transition: all 0.15s ease-out; }
+.picker-fade-leave-active { transition: all 0.1s ease-in; }
+.picker-fade-enter-from,
+.picker-fade-leave-to {
+  opacity: 0; transform: translateY(-4px);
+}
+
+/* ── textarea ── */
 textarea {
   flex: 1; background: none; border: none; outline: none;
   color: var(--text-primary); font-family: var(--font-mono);

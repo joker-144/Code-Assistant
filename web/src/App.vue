@@ -57,7 +57,7 @@ onMounted(() => { reset() })
             </div>
           </div>
           <div class="input-section">
-            <ChatInput :disabled="isProcessing" @send="sendMessage" />
+            <ChatInput :disabled="isProcessing" @send="sendMessage" @open-settings="activeView = 'settings'" />
           </div>
         </div>
 

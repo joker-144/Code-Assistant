@@ -57,37 +57,54 @@ const activeProvider = computed(() => providers.find((p) => p.id === settings.va
 // 动态模型列表（从后端 API 获取）
 const providerModels = ref([])
 const modelsLoading = ref(false)
-const modelsSource = ref('')
+const modelsError = ref('')
 
-async function fetchModels(provider, apiKey, baseUrl) {
-  if (!provider || provider === 'custom') {
-    providerModels.value = []
-    modelsSource.value = ''
+async function fetchModels(providerId, apiKey, baseUrl) {
+  providerModels.value = []
+  modelsError.value = ''
+
+  if (!providerId || !baseUrl) {
+    modelsError.value = '请先配置 Base URL'
+    return
+  }
+
+  if (!apiKey) {
+    modelsError.value = '请先配置 API Key'
     return
   }
 
   modelsLoading.value = true
   try {
-    const params = new URLSearchParams({ provider })
+    const params = new URLSearchParams({ provider: providerId })
     if (apiKey) params.set('api_key', apiKey)
     if (baseUrl) params.set('base_url', baseUrl)
 
     const resp = await fetch(`/api/models?${params}`)
     const data = await resp.json()
 
+    if (data.error) {
+      modelsError.value = data.error
+      return
+    }
+
     providerModels.value = (data.models || []).map(m => ({
       value: m.id,
       label: m.name || m.id,
     }))
-    modelsSource.value = data.source || 'builtin'
+
+    // 缓存模型列表到 localStorage 供 ChatInput 使用
+    try {
+      const cache = JSON.parse(localStorage.getItem('devagent-models-cache') || '{}')
+      cache[providerId] = providerModels.value
+      localStorage.setItem('devagent-models-cache', JSON.stringify(cache))
+    } catch { /* ignore */ }
 
     // 如果当前选中的模型不在新列表中，自动选第一个
     if (providerModels.value.length && !providerModels.value.find(m => m.value === settings.value.model)) {
       settings.value.model = providerModels.value[0].value
     }
   } catch (e) {
-    providerModels.value = [{ value: '', label: `加载失败: ${e.message}` }]
-    modelsSource.value = 'error'
+    modelsError.value = `连接失败: ${e.message}`
   } finally {
     modelsLoading.value = false
   }
@@ -302,32 +319,30 @@ async function startUpdateBrowser() {
       <div class="form-group">
         <label>模型选择
           <span v-if="modelsLoading" class="models-status loading">加载中...</span>
-          <span v-else-if="modelsSource === 'api'" class="models-status api">实时</span>
-          <span v-else-if="modelsSource === 'builtin'" class="models-status builtin">内置</span>
         </label>
         <div class="select-wrapper">
           <select v-model="settings.model" :disabled="modelsLoading">
             <template v-if="providerModels.length">
               <option v-for="m in providerModels" :key="m.value" :value="m.value">{{ m.label }}</option>
             </template>
-            <template v-else>
-              <option value="">— 加载中... —</option>
-            </template>
+            <option v-else value="">— 请先配置 API Key —</option>
           </select>
           <svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </div>
+        <p v-if="modelsError" class="hint error">{{ modelsError }}</p>
       </div>
 
-      <div v-if="activeProvider?.id === 'custom'" class="form-group">
+      <div class="form-group">
         <label>自定义模型 ID</label>
         <div class="input-with-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="2"/><path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <input
             v-model="settings.model"
             type="text"
-            placeholder="如 gpt-4o, claude-3-sonnet..."
+            placeholder="如 gpt-4o, claude-3-sonnet，填写后覆盖上方下拉选择"
           />
         </div>
+        <p class="hint">直接输入模型 ID 可覆盖下拉列表中的选项，用于使用最新或未列出的模型。</p>
       </div>
 
       <div class="form-group">
@@ -526,6 +541,7 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 .number-input:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 .hint { font-size: 11px; color: var(--text-faint); margin-top: 6px; line-height: 1.5; }
+.hint.error { color: #f87171; }
 .hint.warning { color: var(--text-muted); background: var(--bg-card); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 12px; }
 
 .models-status {
@@ -533,8 +549,6 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
   margin-left: 6px; vertical-align: middle;
 }
 .models-status.loading { background: var(--bg-card); color: var(--text-muted); }
-.models-status.api { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
-.models-status.builtin { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
 
 /* ── 版本更新 ── */
 .version-info { margin-bottom: 16px; }
