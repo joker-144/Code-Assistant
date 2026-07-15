@@ -19,10 +19,36 @@ DevAgent — 多 Agent 协同代码助手 (2026 标准)
 """
 from __future__ import annotations
 
-try:
-    from importlib.metadata import PackageNotFoundError, version
+import os
+from pathlib import Path
 
-    __version__ = version("dev-agent")
-except PackageNotFoundError:
-    # 未通过 pip 安装时（开发模式 pip install -e . 也可以读到）
-    __version__ = "0.5.0"
+
+def _read_version() -> str:
+    """读取统一版本号 — 优先级：VERSION 文件 > 环境变量 > 已安装包 > 默认值"""
+    # 1. VERSION 文件（项目根目录与打包后的 _MEIPASS 都尝试）
+    for candidate in (
+        Path(__file__).parent.parent.parent / "VERSION",
+        Path(__file__).parent.parent / "VERSION",
+    ):
+        try:
+            if candidate.is_file():
+                return candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+
+    # 2. 环境变量（Electron 主进程可通过此注入）
+    env_v = os.environ.get("DEVAGENT_VERSION")
+    if env_v:
+        return env_v.strip()
+
+    # 3. 已安装包的 metadata
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("dev-agent")
+    except (PackageNotFoundError, ImportError):
+        # 4. 兜底
+        return "0.5.10"
+
+
+__version__ = _read_version()

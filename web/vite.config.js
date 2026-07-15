@@ -1,22 +1,54 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-export default defineConfig({
-  plugins: [vue()],
-  base: './',
-  server: {
-    port: 5173,
-    proxy: {
-      '/chat': 'http://localhost:8000',
-      '/conversations': 'http://localhost:8000',
-      '/index': 'http://localhost:8000',
-      '/memory': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
-      '/api': 'http://localhost:8000',
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+// ── 统一版本号读取：根目录的 VERSION 文件 ──
+function readVersion() {
+  const candidates = [
+    resolve(__dirname, '../VERSION'),
+    resolve(__dirname, '../../VERSION'),
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        return readFileSync(p, 'utf-8').trim()
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return '0.0.0'
+}
+
+const APP_VERSION = readVersion()
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+
+  return {
+    plugins: [vue()],
+    base: './',
+    define: {
+      __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
+    server: {
+      port: 5173,
+      proxy: {
+        '/chat': 'http://localhost:8000',
+        '/conversations': 'http://localhost:8000',
+        '/index': 'http://localhost:8000',
+        '/memory': 'http://localhost:8000',
+        '/health': 'http://localhost:8000',
+        '/api': 'http://localhost:8000',
+      },
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+    },
+  }
 })

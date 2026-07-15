@@ -5,6 +5,7 @@ const {
   ipcMain,
 } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 const BACKEND_STARTUP_TIMEOUT = 30000;
@@ -12,6 +13,26 @@ const BACKEND_STARTUP_TIMEOUT = 30000;
 let mainWindow = null;
 let backendProcess = null;
 let backendPort = null;
+
+// ── 统一版本号读取 ──
+function readAppVersion() {
+  const candidates = [
+    path.join(__dirname, '../../VERSION'),
+    path.join(__dirname, '../VERSION'),
+    path.join(process.resourcesPath || '', 'VERSION'),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        return fs.readFileSync(p, 'utf-8').trim();
+      }
+    } catch { /* ignore */ }
+  }
+  return '0.5.10';
+}
+
+const APP_VERSION = readAppVersion();
+console.log(`[DevAgent] Version: ${APP_VERSION}`);
 
 function getBackendPath() {
   if (app.isPackaged) {
@@ -28,6 +49,7 @@ function startBackend() {
     backendProcess = spawn(backendPath, ['serve', '--port', '0'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: { ...process.env, DEVAGENT_VERSION: APP_VERSION },
     });
 
     let firstLine = '';

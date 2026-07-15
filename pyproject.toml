@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dev-agent"
-version = "0.5.0"
+version = "0.5.10"
 description = "AI 编码智能体 — 多 Agent 协同 + 反思机制 + 弹性工程 (2026 标准)"
 readme = "README.md"
 requires-python = ">=3.11"

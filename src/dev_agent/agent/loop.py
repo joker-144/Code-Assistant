@@ -419,11 +419,16 @@ def create_agent(
     """
     llm = None
     if llm_overrides:
-        llm = LLMClient(
-            api_key=llm_overrides.get("api_key", ""),
-            base_url=llm_overrides.get("base_url", ""),
-            model=llm_overrides.get("model", ""),
-            temperature=llm_overrides.get("temperature"),
-            max_tokens=llm_overrides.get("max_tokens"),
-        )
+        # 过滤掉空值：仅当 api_key 非空时才使用前端覆盖（避免空 key 覆盖 .env 配置）
+        api_key = (llm_overrides.get("api_key") or "").strip()
+        base_url = (llm_overrides.get("base_url") or "").strip()
+        model = (llm_overrides.get("model") or "").strip()
+        if api_key:
+            llm = LLMClient(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                temperature=llm_overrides.get("temperature"),
+                max_tokens=llm_overrides.get("max_tokens"),
+            )
     return AgentLoop(workspace=workspace, conversation_id=conversation_id, llm=llm)
