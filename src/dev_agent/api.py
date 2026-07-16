@@ -156,18 +156,29 @@ async def chat_stream(req: ChatRequest):
     agent, conv_id = _get_or_create_agent(req.conversation_id, req.settings)
 
     async def event_stream():
+        agent_gen = agent.run(req.message)
         try:
-            async for event in agent.run(req.message):
-                if event.type == "tool_start":
-                    yield f"event: tool_start\ndata: {json.dumps({'tool': event.tool_name, 'args': event.tool_args, 'content': event.content}, ensure_ascii=False)}\n\n"
-                elif event.type == "tool_result":
-                    yield f"event: tool_result\ndata: {json.dumps({'tool': event.tool_name, 'content': event.content}, ensure_ascii=False)}\n\n"
-                elif event.type == "text":
-                    yield f"event: text\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
-                elif event.type == "error":
-                    yield f"event: error\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
-                elif event.type == "done":
-                    yield f"event: done\ndata: {json.dumps({'conversation_id': conv_id}, ensure_ascii=False)}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        agent_gen.__anext__(),
+                        timeout=5.0,
+                    )
+                    if event.type == "tool_start":
+                        yield f"event: tool_start\ndata: {json.dumps({'tool': event.tool_name, 'args': event.tool_args, 'content': event.content}, ensure_ascii=False)}\n\n"
+                    elif event.type == "tool_result":
+                        yield f"event: tool_result\ndata: {json.dumps({'tool': event.tool_name, 'content': event.content}, ensure_ascii=False)}\n\n"
+                    elif event.type == "text":
+                        yield f"event: text\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
+                    elif event.type == "error":
+                        yield f"event: error\ndata: {json.dumps({'content': event.content}, ensure_ascii=False)}\n\n"
+                    elif event.type == "done":
+                        yield f"event: done\ndata: {json.dumps({'conversation_id': conv_id}, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    # 每 5 秒发送心跳注释，防止 TCP 空闲断开
+                    yield ": keepalive\n\n"
+        except StopAsyncIteration:
+            pass
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'content': str(e)}, ensure_ascii=False)}\n\n"
 

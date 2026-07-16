@@ -1,6 +1,6 @@
 import { ref, nextTick } from 'vue'
 
-const SSE_TIMEOUT_MS = 180000 // 3 分钟无响应超时
+const SSE_TIMEOUT_MS = 60000 // 60 秒无响应超时（配合后端 5s 心跳保活）
 
 export function useChat() {
   const messages = ref([])

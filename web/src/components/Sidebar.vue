@@ -10,6 +10,7 @@ const props = defineProps({
 const emit = defineEmits(['new-chat', 'index', 'stats', 'navigate', 'load-conversation'])
 
 const conversations = ref([])
+const APP_VERSION = __APP_VERSION__
 const loadingConversations = ref(false)
 
 async function fetchConversations() {
@@ -111,7 +112,7 @@ watch(() => props.activeView, (v) => {
           <span class="status-dot" :class="{ active: isProcessing }"></span>
           <span>{{ statusText }}</span>
         </div>
-        <span class="version-tag">v0.5.12</span>
+        <span class="version-tag">v{{ APP_VERSION }}</span>
       </div>
     </aside>
   </div>
