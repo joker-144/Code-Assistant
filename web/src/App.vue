@@ -13,7 +13,7 @@ import StatsModal from './components/StatsModal.vue'
 
 const {
   messages, isProcessing, statusText, messagesRef,
-  sendMessage, reset,
+  sendMessage, cancel, reset,
 } = useChat()
 
 const activeView = ref('chat')
@@ -57,7 +57,7 @@ onMounted(() => { reset() })
             </div>
           </div>
           <div class="input-section">
-            <ChatInput :disabled="isProcessing" @send="sendMessage" @open-settings="activeView = 'settings'" />
+            <ChatInput :disabled="isProcessing" @send="sendMessage" @stop="cancel" @open-settings="activeView = 'settings'" />
           </div>
         </div>
 

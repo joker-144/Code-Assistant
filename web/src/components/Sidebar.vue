@@ -1,11 +1,52 @@
 <script setup>
+import { ref, onMounted, watch } from 'vue'
+
 const props = defineProps({
   statusText: { type: String, default: '就绪' },
   isProcessing: { type: Boolean, default: false },
   activeView: { type: String, default: 'chat' },
   sidebarExpanded: { type: Boolean, default: true },
 })
-const emit = defineEmits(['new-chat', 'index', 'stats', 'navigate'])
+const emit = defineEmits(['new-chat', 'index', 'stats', 'navigate', 'load-conversation'])
+
+const conversations = ref([])
+const loadingConversations = ref(false)
+
+async function fetchConversations() {
+  loadingConversations.value = true
+  try {
+    const res = await fetch('/conversations?limit=20')
+    if (res.ok) {
+      const data = await res.json()
+      conversations.value = data.conversations || []
+    }
+  } catch {
+    // 静默失败
+  } finally {
+    loadingConversations.value = false
+  }
+}
+
+function formatTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts + (ts.length === 10 ? 'T00:00:00' : ''))
+  if (isNaN(d.getTime())) return ''
+  const now = new Date()
+  const diff = now - d
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
+onMounted(() => {
+  fetchConversations()
+})
+
+// 切回对话视图时刷新列表（新对话/消息后自动更新）
+watch(() => props.activeView, (v) => {
+  if (v === 'chat') fetchConversations()
+})
 </script>
 
 <template>
@@ -40,7 +81,21 @@ const emit = defineEmits(['new-chat', 'index', 'stats', 'navigate'])
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span>新对话</span>
         </button>
-        <div class="chat-list-empty">暂无历史对话</div>
+        <div v-if="loadingConversations" class="chat-list-empty">加载中...</div>
+        <div v-else-if="conversations.length === 0" class="chat-list-empty">暂无历史对话</div>
+        <div v-else class="chat-list">
+          <button
+            v-for="conv in conversations"
+            :key="conv.id"
+            class="chat-item"
+            @click="emit('load-conversation', conv.id)"
+            :title="conv.title || '无标题'"
+          >
+            <span class="chat-item-dot"></span>
+            <span class="chat-item-text">{{ conv.title || '对话' }}</span>
+            <span class="chat-item-time">{{ formatTime(conv.created_at) }}</span>
+          </button>
+        </div>
       </div>
 
       <div class="sidebar-section">
@@ -56,7 +111,7 @@ const emit = defineEmits(['new-chat', 'index', 'stats', 'navigate'])
           <span class="status-dot" :class="{ active: isProcessing }"></span>
           <span>{{ statusText }}</span>
         </div>
-        <span class="version-tag">v0.5.10</span>
+        <span class="version-tag">v0.5.12</span>
       </div>
     </aside>
   </div>
@@ -116,6 +171,30 @@ const emit = defineEmits(['new-chat', 'index', 'stats', 'navigate'])
 
 .chat-list-empty {
   font-size: 11px; color: var(--text-faint); padding: 10px 6px; text-align: center;
+}
+
+.chat-list {
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: 320px; overflow-y: auto;
+}
+
+.chat-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: var(--radius-sm);
+  font-size: 11px; color: var(--text-muted); cursor: pointer;
+  background: none; border: none; text-align: left; width: 100%;
+  transition: background 0.15s var(--ease-out-expo);
+}
+.chat-item:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.chat-item-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-faint); flex-shrink: 0;
+}
+.chat-item-text {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-item-time {
+  font-size: 9px; color: var(--text-faint); flex-shrink: 0;
 }
 
 .agent-item {

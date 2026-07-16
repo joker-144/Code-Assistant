@@ -184,6 +184,16 @@ async def chat_stream(req: ChatRequest):
 
 # ── 对话管理接口 ──
 
+@app.get("/conversations")
+async def list_conversations(limit: int = 50):
+    """获取对话列表（按更新时间倒序）"""
+    from dev_agent.memory.store import get_store
+
+    store = get_store()
+    conversations = store.list_conversations(limit=limit)
+    return {"conversations": conversations}
+
+
 @app.post("/conversations")
 async def create_conversation(req: ConversationCreate):
     """创建新对话"""

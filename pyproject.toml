@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dev-agent"
-version = "0.5.11"
+dynamic = ["version"]
 description = "AI 编码智能体 — 多 Agent 协同 + 反思机制 + 弹性工程 (2026 标准)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -57,6 +57,9 @@ dev = [
 
 [project.scripts]
 dev-agent = "dev_agent.cli:app"
+
+[tool.setuptools.dynamic]
+version = {attr = "dev_agent.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

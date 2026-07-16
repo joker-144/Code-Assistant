@@ -106,7 +106,7 @@ class MemoryStore:
     def create_conversation(self, conv_id: str, title: str = "") -> None:
         """创建新对话"""
         self._conn.execute(
-            "INSERT OR IGNORE INTO conversations (id, title) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO conversations (id, title, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
             (conv_id, title),
         )
         self._conn.commit()
@@ -129,8 +129,21 @@ class MemoryStore:
             (conversation_id, role, content, tool_call_id or None,
              tool_name or None, tool_args or None, tokens),
         )
+        # 同步更新对话的 updated_at，让侧栏按最近活跃度排序
+        self._conn.execute(
+            "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (conversation_id,),
+        )
         self._conn.commit()
         return cur.lastrowid
+
+    def list_conversations(self, limit: int = 50) -> list[dict]:
+        """获取对话列表（按更新时间倒序）"""
+        rows = self._conn.execute(
+            "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_messages(self, conversation_id: str, limit: int = 100) -> list[dict]:
         """获取对话的消息列表"""

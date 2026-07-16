@@ -1,5 +1,7 @@
 import { ref, nextTick } from 'vue'
 
+const SSE_TIMEOUT_MS = 180000 // 3 分钟无响应超时
+
 export function useChat() {
   const messages = ref([])
   const isProcessing = ref(false)
@@ -8,6 +10,7 @@ export function useChat() {
   const messagesRef = ref(null)
 
   let currentAssistant = null
+  let abortController = null
 
   function scrollToBottom() {
     nextTick(() => {
@@ -23,6 +26,21 @@ export function useChat() {
       tools: [],
     }]
     conversationId.value = null
+  }
+
+  function cancel() {
+    if (abortController) {
+      abortController.abort()
+      abortController = null
+    }
+    if (isProcessing.value) {
+      isProcessing.value = false
+      statusText.value = '已取消'
+      // 标记最后一条助手消息
+      if (currentAssistant && !currentAssistant.content && currentAssistant.tools.length === 0) {
+        currentAssistant.content = '（已取消）'
+      }
+    }
   }
 
   async function sendMessage(text) {
@@ -51,14 +69,23 @@ export function useChat() {
     try {
       await streamChat(text)
     } catch (err) {
-      currentAssistant.content += `\n\n**错误:** ${err.message}`
+      if (err.name === 'AbortError') {
+        currentAssistant.content += `\n\n（已取消）`
+      } else {
+        currentAssistant.content += `\n\n**错误:** ${err.message}`
+      }
     } finally {
+      abortController = null
       isProcessing.value = false
-      statusText.value = '系统就绪'
+      if (statusText.value === 'Agent 思考中...' || statusText.value.startsWith('执行:')) {
+        statusText.value = '系统就绪'
+      }
     }
   }
 
   function streamChat(message) {
+    abortController = new AbortController()
+
     return new Promise((resolve, reject) => {
       // 读取前端设置并传递给后端
       let settings = null
@@ -84,12 +111,21 @@ export function useChat() {
         body.settings = settings
       }
 
+      // SSE 超时兜底：3 分钟无任何数据则中止
+      let sseTimer = setTimeout(() => {
+        if (abortController) {
+          abortController.abort()
+        }
+      }, SSE_TIMEOUT_MS)
+
       fetch('/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: abortController.signal,
       }).then(res => {
         if (!res.ok) {
+          clearTimeout(sseTimer)
           reject(new Error(`HTTP ${res.status}`))
           return
         }
@@ -102,9 +138,16 @@ export function useChat() {
         function read() {
           reader.read().then(({ done, value }) => {
             if (done) {
+              clearTimeout(sseTimer)
               resolve()
               return
             }
+
+            // 收到数据，重置超时
+            clearTimeout(sseTimer)
+            sseTimer = setTimeout(() => {
+              if (abortController) abortController.abort()
+            }, SSE_TIMEOUT_MS)
 
             buffer += decoder.decode(value, { stream: true })
             const lines = buffer.split('\n')
@@ -125,11 +168,17 @@ export function useChat() {
             }
 
             read()
-          }).catch(reject)
+          }).catch((err) => {
+            clearTimeout(sseTimer)
+            reject(err)
+          })
         }
 
         read()
-      }).catch(reject)
+      }).catch((err) => {
+        clearTimeout(sseTimer)
+        reject(err)
+      })
     })
   }
 
@@ -180,7 +229,6 @@ export function useChat() {
         if (data.conversation_id) {
           conversationId.value = data.conversation_id
         }
-        // 如果没有任何内容，显示占位
         if (!currentAssistant.content && currentAssistant.tools.length === 0) {
           currentAssistant.content = '（无回复）'
         }
@@ -195,6 +243,7 @@ export function useChat() {
     conversationId,
     messagesRef,
     sendMessage,
+    cancel,
     reset,
     scrollToBottom,
   }

@@ -2,7 +2,7 @@
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({ disabled: { type: Boolean, default: false } })
-const emit = defineEmits(['send', 'open-settings'])
+const emit = defineEmits(['send', 'stop', 'open-settings'])
 
 const text = ref('')
 const textareaRef = ref(null)
@@ -187,7 +187,12 @@ function shortLabel(modelId) {
       ></textarea>
       <div class="input-actions">
         <span class="char-count" v-if="text">{{ text.length }}</span>
-        <button class="send-btn" :disabled="disabled || !text.trim()" @click="submit" title="发送 (Enter)">
+        <button v-if="disabled" class="stop-btn" @click="emit('stop')" title="停止生成 (Esc)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/>
+          </svg>
+        </button>
+        <button v-else class="send-btn" :disabled="!text.trim()" @click="submit" title="发送 (Enter)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -355,6 +360,21 @@ textarea:disabled { color: var(--text-muted); }
 }
 .send-btn:active:not(:disabled) { transform: scale(0.94); }
 .send-btn:disabled { background: var(--bg-hover); color: var(--text-faint); cursor: not-allowed; }
+
+.stop-btn {
+  width: 30px; height: 30px; background: var(--error);
+  border: none; border-radius: 7px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: white; flex-shrink: 0; transition: all 0.16s var(--ease-spring);
+  animation: pulse-stop 1s ease-in-out infinite;
+}
+.stop-btn:hover { background: #c0392b; transform: scale(1.07); }
+.stop-btn:active { transform: scale(0.94); }
+
+@keyframes pulse-stop {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(231, 76, 60, 0); }
+}
 
 .input-hint {
   display: flex; align-items: center; justify-content: space-between;
