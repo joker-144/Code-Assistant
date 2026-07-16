@@ -311,6 +311,53 @@ async def list_models(
     return result
 
 
+# ── 用户配置持久化接口 ──
+
+_USER_SETTINGS_FILE = Path.home() / ".devagent" / "settings.json"
+
+
+def _load_user_settings() -> dict:
+    """从磁盘加载用户配置"""
+    try:
+        if _USER_SETTINGS_FILE.exists():
+            return json.loads(_USER_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_user_settings(data: dict) -> None:
+    """将用户配置写入磁盘"""
+    _USER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _USER_SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@app.get("/api/user-settings")
+async def get_user_settings():
+    """获取持久化的用户配置（provider / apiKeys / model / baseUrl / temperature / maxTokens）"""
+    return _load_user_settings()
+
+
+class UserSettingsPayload(BaseModel):
+    provider: str | None = None
+    apiKeys: dict | None = None
+    model: str | None = None
+    baseUrl: str | None = None
+    temperature: float | None = None
+    maxTokens: int | None = None
+
+
+@app.post("/api/user-settings")
+async def save_user_settings(payload: UserSettingsPayload):
+    """保存用户配置到磁盘，与 localStorage 双写保证多端一致"""
+    current = _load_user_settings()
+    # 仅更新传入的非 None 字段
+    update = payload.model_dump(exclude_none=True)
+    current.update(update)
+    _save_user_settings(current)
+    return {"success": True}
+
+
 @app.get("/api/version/check")
 async def version_check():
     """检查最新版本（优先 GitHub Releases，回退 PyPI）"""

@@ -9,6 +9,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const BACKEND_STARTUP_TIMEOUT = 30000;
+const DEFAULT_PORT = 19476;
 
 let mainWindow = null;
 let backendProcess = null;
@@ -41,78 +42,125 @@ function getBackendPath() {
   return path.join(__dirname, '../../dist/dev-agent.exe');
 }
 
+function _parseBackendPort(firstLine) {
+  // 尝试多种格式解析端口号
+  const portMatch = firstLine.match(/port[:\s]*(\d+)/i);
+  if (portMatch) return parseInt(portMatch[1], 10);
+  const numMatch = firstLine.match(/(\d{4,5})/);
+  if (numMatch) return parseInt(numMatch[1], 10);
+  const parsed = parseInt(firstLine.trim(), 10);
+  return isNaN(parsed) ? null : parsed;
+}
+
+function _launchBackend(port) {
+  const backendPath = getBackendPath();
+  const portArg = String(port);
+  console.log(`[DevAgent] Starting backend: ${backendPath} --port ${portArg}`);
+  backendProcess = spawn(backendPath, ['serve', '--port', portArg], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: { ...process.env, DEVAGENT_VERSION: APP_VERSION },
+  });
+}
+
 function startBackend() {
   return new Promise((resolve, reject) => {
-    const backendPath = getBackendPath();
-    console.log(`[DevAgent] Starting backend: ${backendPath}`);
+    let isFirstLaunch = true;
+    let attemptPort = DEFAULT_PORT;
 
-    backendProcess = spawn(backendPath, ['serve', '--port', '0'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      env: { ...process.env, DEVAGENT_VERSION: APP_VERSION },
-    });
+    function onPortResolved(port) {
+      backendPort = port;
+      console.log(`[DevAgent] Backend started on port ${backendPort}`);
+      resolve(backendPort);
+    }
 
-    let firstLine = '';
-    const timeout = setTimeout(() => {
-      reject(new Error('Backend startup timed out after 30 seconds'));
-    }, BACKEND_STARTUP_TIMEOUT);
+    function tryLaunch(port) {
+      _launchBackend(port);
 
-    backendProcess.stdout.on('data', (data) => {
-      const text = data.toString();
-      if (!firstLine) {
-        const newlineIdx = text.indexOf('\n');
-        if (newlineIdx !== -1) {
-          firstLine += text.substring(0, newlineIdx);
-          clearTimeout(timeout);
-
-          const portMatch = firstLine.match(/port[:\s]*(\d+)/i);
-          if (portMatch) {
-            backendPort = parseInt(portMatch[1], 10);
-          } else {
-            const numMatch = firstLine.match(/(\d{4,5})/);
-            if (numMatch) {
-              backendPort = parseInt(numMatch[1], 10);
-            }
-          }
-
-          if (backendPort) {
-            console.log(`[DevAgent] Backend started on port ${backendPort}`);
-            resolve(backendPort);
-          } else {
-            console.log(`[DevAgent] Backend first line: ${firstLine}`);
-            backendPort = parseInt(firstLine.trim(), 10);
-            if (isNaN(backendPort)) {
-              reject(new Error(`Could not parse port from backend output: ${firstLine}`));
-            } else {
-              console.log(`[DevAgent] Backend started on port ${backendPort}`);
-              resolve(backendPort);
-            }
-          }
+      let firstLine = '';
+      const timeout = setTimeout(() => {
+        if (isFirstLaunch) {
+          reject(new Error('Backend startup timed out after 30 seconds'));
         } else {
-          firstLine += text;
-          if (firstLine.length > 500) {
+          // 固定端口被占用，自动切为随机端口后仍然超时
+          reject(new Error('Backend startup timed out — both fixed port and random port failed'));
+        }
+      }, BACKEND_STARTUP_TIMEOUT);
+
+      backendProcess.stdout.on('data', (data) => {
+        const text = data.toString();
+        if (!firstLine) {
+          const newlineIdx = text.indexOf('\n');
+          if (newlineIdx !== -1) {
+            firstLine += text.substring(0, newlineIdx);
             clearTimeout(timeout);
-            reject(new Error('Backend output too long without valid port'));
+
+            const parsedPort = _parseBackendPort(firstLine);
+            if (parsedPort) {
+              return onPortResolved(parsedPort);
+            }
+            // 端口解析失败：先打印输出，如果是首次尝试，则自动切随机端口重试
+            console.log(`[DevAgent] Backend stdout: ${firstLine}`);
+            if (isFirstLaunch) {
+              console.log('[DevAgent] Port parsing failed, retrying with random port...');
+              isFirstLaunch = false;
+              killBackend();
+              return tryLaunch(0);
+            }
+            reject(new Error(`Could not parse port from backend output: ${firstLine}`));
+          } else {
+            firstLine += text;
+            if (firstLine.length > 500) {
+              clearTimeout(timeout);
+              if (isFirstLaunch) {
+                console.log('[DevAgent] Backend stdout too long, retrying with random port...');
+                isFirstLaunch = false;
+                killBackend();
+                return tryLaunch(0);
+              }
+              reject(new Error('Backend output too long without valid port'));
+            }
           }
         }
-      }
-    });
+      });
 
-    backendProcess.stderr.on('data', (data) => {
-      console.error(`[DevAgent Backend] ${data.toString()}`);
-    });
+      backendProcess.stderr.on('data', (data) => {
+        const errText = data.toString();
+        console.error(`[DevAgent Backend] ${errText}`);
+        // 检测端口占用错误
+        if (isFirstLaunch && (errText.includes('Address already in use') || errText.includes('address in use') || errText.includes('EADDRINUSE'))) {
+          clearTimeout(timeout);
+          console.log('[DevAgent] Fixed port in use, trying random port...');
+          isFirstLaunch = false;
+          killBackend();
+          tryLaunch(0);
+        }
+      });
 
-    backendProcess.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(new Error(`Failed to start backend: ${err.message}`));
-    });
+      backendProcess.on('error', (err) => {
+        clearTimeout(timeout);
+        if (isFirstLaunch) {
+          isFirstLaunch = false;
+          killBackend();
+          return tryLaunch(0);
+        }
+        reject(new Error(`Failed to start backend: ${err.message}`));
+      });
 
-    backendProcess.on('exit', (code, signal) => {
-      clearTimeout(timeout);
-      if (!backendPort) {
-        reject(new Error(`Backend exited with code ${code} before reporting port`));
-      }
-    });
+      backendProcess.on('exit', (code, signal) => {
+        clearTimeout(timeout);
+        if (!backendPort) {
+          if (isFirstLaunch) {
+            isFirstLaunch = false;
+            killBackend();
+            return tryLaunch(0);
+          }
+          reject(new Error(`Backend exited with code ${code} before reporting port`));
+        }
+      });
+    }
+
+    tryLaunch(DEFAULT_PORT);
   });
 }
 

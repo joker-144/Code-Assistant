@@ -216,25 +216,51 @@ const totalModelCount = computed(() => {
 })
 
 onMounted(() => {
+  // 1. 优先从 localStorage 加载（端口固定后与上次一致）
+  let loaded = false
   try {
     const stored = localStorage.getItem('devagent-settings')
     if (stored) {
       const parsed = JSON.parse(stored)
-      // 合并：保留新增的默认字段
       const merged = { ...structuredClone(DEFAULT_SETTINGS), ...parsed }
       settings.value = merged
+      loaded = true
     }
   } catch { /* ignore */ }
 
-  // 初始化时拉取当前供应商的模型列表
-  fetchModels(settings.value.provider, settings.value.apiKeys[settings.value.provider], settings.value.baseUrl)
-  loadAllProviderModels()
+  // 2. localStorage 无数据时，回退到服务端磁盘持久化
+  if (!loaded) {
+    fetch('/api/user-settings')
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.provider) {
+          const merged = { ...structuredClone(DEFAULT_SETTINGS), ...data }
+          settings.value = merged
+          // 同步回 localStorage，保证后续读写一致
+          localStorage.setItem('devagent-settings', JSON.stringify(merged))
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        fetchModels(settings.value.provider, settings.value.apiKeys[settings.value.provider], settings.value.baseUrl)
+        loadAllProviderModels()
+      })
+    } else {
+      fetchModels(settings.value.provider, settings.value.apiKeys[settings.value.provider], settings.value.baseUrl)
+      loadAllProviderModels()
+    }
 })
 
 function saveSettings() {
   try {
     localStorage.setItem('devagent-settings', JSON.stringify(settings.value))
   } catch { /* ignore */ }
+  // 同步写入服务端磁盘持久化
+  fetch('/api/user-settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings.value),
+  }).catch(() => {})
   saved.value = true
   setTimeout(() => saved.value = false, 2000)
 }
