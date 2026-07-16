@@ -128,12 +128,76 @@ watch([() => settings.value.apiKeys[settings.value.provider], () => settings.val
   }, 800)
 })
 
+// ── 模型管理状态 ──
+const allProviderModels = ref({})
+const showModelManager = ref(false)
+const refreshingAll = ref(false)
+
+function loadAllProviderModels() {
+  try {
+    const cached = localStorage.getItem('devagent-models-cache')
+    if (cached) {
+      allProviderModels.value = JSON.parse(cached)
+    }
+  } catch { /* ignore */ }
+}
+
+async function refreshAllModels() {
+  refreshingAll.value = true
+  const results = []
+  for (const p of providers) {
+    const key = settings.value.apiKeys[p.id]
+    const url = p.id === 'custom' ? settings.value.baseUrl : p.defaultBaseUrl
+    if (!key || !url) continue
+    try {
+      const params = new URLSearchParams({ provider: p.id, api_key: key, base_url: url })
+      const resp = await fetch(`/api/models?${params}`)
+      const data = await resp.json()
+      if (data.models?.length) {
+        results.push({ provider: p.id, models: data.models })
+      }
+    } catch { /* skip */ }
+  }
+  // 写入缓存
+  const cache = {}
+  for (const r of results) {
+    cache[r.provider] = r.models.map(m => ({ value: m.id, label: m.name || m.id }))
+  }
+  try {
+    localStorage.setItem('devagent-models-cache', JSON.stringify(cache))
+  } catch { /* ignore */ }
+  allProviderModels.value = cache
+  refreshingAll.value = false
+}
+
+function setActiveModel(providerId, modelId) {
+  settings.value.provider = providerId
+  settings.value.model = modelId
+  const p = providers.find(pr => pr.id === providerId)
+  if (p && p.id !== 'custom') {
+    settings.value.baseUrl = p.defaultBaseUrl
+  }
+  saveSettings()
+  // 同步 ChatInput 模型选择器
+  try {
+    const stored = localStorage.getItem('devagent-settings')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      parsed.provider = providerId
+      parsed.model = modelId
+      if (p && p.id !== 'custom') parsed.baseUrl = p.defaultBaseUrl
+      localStorage.setItem('devagent-settings', JSON.stringify(parsed))
+    }
+  } catch { /* ignore */ }
+}
+
 // ── 版本更新状态 ──
 const currentVersion = ref('')
 const latestVersion = ref('')
 const hasUpdate = ref(false)
 const changelog = ref('')
 const releaseUrl = ref('')
+const downloadUrl = ref('')
 const checkingUpdate = ref(false)
 const updatingVersion = ref(false)
 const updateLog = ref([])
@@ -141,6 +205,15 @@ const updateDone = ref(false)
 
 // 是否运行在 Electron 中
 const isElectron = computed(() => !!window.electronAPI)
+
+// 所有供应商模型总数
+const totalModelCount = computed(() => {
+  let count = 0
+  for (const pid of Object.keys(allProviderModels.value)) {
+    count += (allProviderModels.value[pid] || []).length
+  }
+  return count
+})
 
 onMounted(() => {
   try {
@@ -155,6 +228,7 @@ onMounted(() => {
 
   // 初始化时拉取当前供应商的模型列表
   fetchModels(settings.value.provider, settings.value.apiKeys[settings.value.provider], settings.value.baseUrl)
+  loadAllProviderModels()
 })
 
 function saveSettings() {
@@ -194,6 +268,7 @@ async function checkVersion() {
     hasUpdate.value = data.has_update || false
     changelog.value = data.changelog || ''
     releaseUrl.value = data.release_url || ''
+    downloadUrl.value = data.download_url || ''
   } catch (e) {
     updateLog.value = [`检查更新失败: ${e.message}`]
   } finally {
@@ -202,54 +277,64 @@ async function checkVersion() {
 }
 
 async function startUpdate() {
-  if (!window.electronAPI) {
-    updateLog.value = ['请在桌面端使用更新功能']
-    return
-  }
-
   updatingVersion.value = true
   updateLog.value = []
   updateDone.value = false
 
   try {
-    const result = await window.electronAPI.updateVersion()
-    if (result.success) {
-      updateLog.value = ['更新命令已提交，请等待后端处理...']
+    // Electron 模式：下载 → 安装 → 退出
+    if (window.electronAPI) {
+      // 监听下载进度
+      window.electronAPI.onUpdateProgress((msg) => {
+        updateLog.value.push(msg.message || JSON.stringify(msg))
+      })
+
+      const dlResult = await window.electronAPI.updateDownload()
+      if (!dlResult.success) {
+        updateLog.value.push(`下载失败: ${dlResult.error}`)
+        updatingVersion.value = false
+        return
+      }
+
+      updateLog.value.push('安装包已下载，正在启动安装程序…')
+
+      const installResult = await window.electronAPI.updateInstall(dlResult.file_path)
+      if (!installResult.success) {
+        updateLog.value.push(`安装启动失败: ${installResult.error}`)
+      }
+      // 安装程序启动后，应用会自动退出
     } else {
-      updateLog.value = [`更新启动失败: ${result.error}`]
-    }
-  } catch (e) {
-    updateLog.value = [`更新异常: ${e.message}`]
-  } finally {
-    updatingVersion.value = false
-  }
-}
+      // 浏览器模式：SSE 下载 → 手动安装
+      const resp = await fetch('/api/version/download', { method: 'POST' })
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
 
-async function startUpdateBrowser() {
-  updatingVersion.value = true
-  updateLog.value = []
-  updateDone.value = false
-
-  try {
-    const resp = await fetch('/api/version/update', { method: 'POST' })
-    const reader = resp.body.getReader()
-    const decoder = new TextDecoder()
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const text = decoder.decode(value, { stream: true })
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const msg = JSON.parse(trimmed.slice(6))
-            updateLog.value.push(msg.message || JSON.stringify(msg))
-            if (msg.status === 'done') updateDone.value = true
-          } catch {
-            updateLog.value.push(trimmed.slice(6))
+      let downloadedFile = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const text = decoder.decode(value, { stream: true })
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim()
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const msg = JSON.parse(trimmed.slice(6))
+              updateLog.value.push(msg.message || JSON.stringify(msg))
+              if (msg.status === 'done') {
+                downloadedFile = msg.file_path || ''
+                updateDone.value = true
+              }
+            } catch {
+              updateLog.value.push(trimmed.slice(6))
+            }
           }
         }
+      }
+
+      if (downloadedFile) {
+        // 浏览器模式提示用户手动运行安装包
+        updateLog.value.push(`安装包已保存到: ${downloadedFile}`)
+        updateLog.value.push('请在文件管理器中双击运行安装包完成更新。')
       }
     }
   } catch (e) {
@@ -380,6 +465,61 @@ async function startUpdateBrowser() {
       </div>
     </div>
 
+    <!-- ── 模型管理 ── -->
+    <div class="form-section">
+      <h2>
+        模型管理
+        <span class="section-badge">{{ totalModelCount }} 个模型</span>
+      </h2>
+      <p class="section-desc">
+        查看所有已配置供应商的可用模型，点击模型可一键切换。配置了 API Key 的供应商会自动拉取模型列表。
+      </p>
+
+      <div class="model-manager-actions">
+        <button class="btn-secondary btn-sm" @click="refreshAllModels" :disabled="refreshingAll">
+          {{ refreshingAll ? '刷新中...' : '刷新全部模型' }}
+        </button>
+      </div>
+
+      <div class="provider-model-list">
+        <div
+          v-for="p in providers"
+          :key="p.id"
+          class="provider-model-group"
+        >
+          <div class="pmg-header">
+            <span class="pmg-provider-name">{{ p.name }}</span>
+            <span
+              class="pmg-api-status"
+              :class="{ configured: settings.apiKeys[p.id] }"
+            >
+              {{ settings.apiKeys[p.id] ? '已配置' : '未配置' }}
+            </span>
+            <span v-if="settings.provider === p.id" class="pmg-active-badge">当前</span>
+          </div>
+
+          <div
+            v-if="allProviderModels[p.id]?.length"
+            class="pmg-models"
+          >
+            <button
+              v-for="m in allProviderModels[p.id]"
+              :key="m.value"
+              class="pmg-model-chip"
+              :class="{ active: settings.provider === p.id && settings.model === m.value }"
+              @click="setActiveModel(p.id, m.value)"
+              :title="m.value"
+            >
+              {{ m.label }}
+            </button>
+          </div>
+          <div v-else class="pmg-empty">
+            {{ settings.apiKeys[p.id] ? '暂无模型缓存，请点击上方刷新' : '配置 API Key 后可拉取模型' }}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── 版本更新 ── -->
     <div class="form-section">
       <h2>版本更新</h2>
@@ -417,7 +557,7 @@ async function startUpdateBrowser() {
         <button
           v-if="hasUpdate"
           class="btn-primary"
-          @click="isElectron ? startUpdate() : startUpdateBrowser()"
+          @click="startUpdate()"
           :disabled="updatingVersion"
         >
           {{ updatingVersion ? '更新中...' : '立即更新' }}
@@ -554,6 +694,58 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
   margin-left: 6px; vertical-align: middle;
 }
 .models-status.loading { background: var(--bg-card); color: var(--text-muted); }
+
+/* ── 模型管理 ── */
+.section-badge {
+  font-size: 10px; font-weight: 500; color: var(--accent);
+  background: var(--accent-soft); padding: 2px 8px; border-radius: 10px;
+  margin-left: 8px; vertical-align: middle;
+}
+.model-manager-actions { margin-bottom: 14px; }
+.btn-sm { padding: 6px 14px; font-size: 11px; }
+
+.provider-model-list { display: flex; flex-direction: column; gap: 12px; }
+.provider-model-group {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 13px 14px;
+  transition: border-color 0.15s var(--ease-out-expo);
+}
+.provider-model-group:hover { border-color: var(--accent-border); }
+
+.pmg-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 9px;
+}
+.pmg-provider-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.pmg-api-status {
+  font-size: 9.5px; padding: 1px 7px; border-radius: 8px;
+  background: var(--bg-input); color: var(--text-faint);
+}
+.pmg-api-status.configured {
+  background: var(--success-soft); color: var(--success);
+}
+.pmg-active-badge {
+  font-size: 9px; padding: 1px 7px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--accent); font-weight: 600;
+}
+
+.pmg-models { display: flex; flex-wrap: wrap; gap: 5px; }
+.pmg-model-chip {
+  display: inline-block; padding: 3px 10px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 10.5px;
+  cursor: pointer; transition: all 0.15s var(--ease-out-expo);
+  white-space: nowrap; max-width: 220px; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pmg-model-chip:hover {
+  border-color: var(--accent-border); color: var(--text-primary); background: var(--bg-hover);
+}
+.pmg-model-chip.active {
+  border-color: var(--accent-border); background: var(--accent-soft);
+  color: var(--accent); font-weight: 600;
+}
+.pmg-empty { font-size: 11px; color: var(--text-faint); padding: 6px 0; }
 
 /* ── 版本更新 ── */
 .version-info { margin-bottom: 14px; }

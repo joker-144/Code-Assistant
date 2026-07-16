@@ -12,7 +12,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -292,7 +292,7 @@ async def list_models(
 
 @app.get("/api/version/check")
 async def version_check():
-    """检查最新版本（从 PyPI 获取）"""
+    """检查最新版本（优先 GitHub Releases，回退 PyPI）"""
     import ssl
     from urllib.request import urlopen, Request
 
@@ -303,80 +303,164 @@ async def version_check():
         "changelog": "",
         "has_update": False,
         "release_url": "",
+        "download_url": "",
+        "source": "none",
     }
 
+    # 优先尝试 GitHub Releases
     try:
         ctx = ssl.create_default_context()
-        req = Request(
-            "https://pypi.org/pypi/dev-agent/json",
-            headers={"User-Agent": "DevAgent-Updater"},
+        gh_req = Request(
+            "https://api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+            headers={
+                "User-Agent": "DevAgent-Updater",
+                "Accept": "application/vnd.github.v3+json",
+            },
         )
-        with urlopen(req, timeout=10, context=ctx) as resp:
-            data = json.loads(resp.read().decode())
-            latest = data.get("info", {}).get("version", current)
-            release_url = data.get("info", {}).get("release_url", "")
+        with urlopen(gh_req, timeout=10, context=ctx) as resp:
+            gh_data = json.loads(resp.read().decode())
+            tag = gh_data.get("tag_name", "").lstrip("v")
+            changelog_body = gh_data.get("body", "") or ""
+            html_url = gh_data.get("html_url", "")
 
-            result["latest"] = latest
-            result["release_url"] = release_url
-            result["has_update"] = _compare_versions(latest, current) > 0
+            # 查找 Windows 安装包资源
+            download_url = ""
+            for asset in gh_data.get("assets", []):
+                name = asset.get("name", "")
+                if name.endswith(".exe") and ("Setup" in name or "setup" in name or "install" in name or "Installer" in name):
+                    download_url = asset.get("browser_download_url", "")
+                    break
+            # 没找到 installer 就取第一个 exe
+            if not download_url:
+                for asset in gh_data.get("assets", []):
+                    if asset.get("name", "").endswith(".exe"):
+                        download_url = asset.get("browser_download_url", "")
+                        break
 
-            if result["has_update"]:
-                # Try to extract changelog
-                try:
-                    req_changelog = Request(
-                        f"https://raw.githubusercontent.com/user/dev-agent/v{latest}/CHANGELOG.md",
-                        headers={"User-Agent": "DevAgent-Updater"},
-                    )
-                    with urlopen(req_changelog, timeout=5, context=ctx) as cl_resp:
-                        result["changelog"] = cl_resp.read().decode("utf-8", errors="ignore")[:4096]
-                except Exception:
-                    result["changelog"] = f"新版本 {latest} 已发布，详情请访问 {release_url}"
-    except Exception as e:
-        result["error"] = f"检查更新失败: {str(e)}"
+            if tag:
+                result["latest"] = tag
+                result["changelog"] = changelog_body[:4096]
+                result["release_url"] = html_url
+                result["download_url"] = download_url
+                result["has_update"] = _compare_versions(tag, current) > 0
+                result["source"] = "github"
+    except Exception:
+        # GitHub 失败，回退 PyPI
+        try:
+            ctx = ssl.create_default_context()
+            req = Request(
+                "https://pypi.org/pypi/dev-agent/json",
+                headers={"User-Agent": "DevAgent-Updater"},
+            )
+            with urlopen(req, timeout=10, context=ctx) as resp:
+                data = json.loads(resp.read().decode())
+                latest = data.get("info", {}).get("version", current)
+                release_url = data.get("info", {}).get("release_url", "")
+
+                result["latest"] = latest
+                result["release_url"] = release_url
+                result["has_update"] = _compare_versions(latest, current) > 0
+                result["source"] = "pypi"
+
+                if result["has_update"]:
+                    result["changelog"] = f"PyPI 新版本 {latest} 已发布，请使用 pip install --upgrade dev-agent 更新。"
+        except Exception as e:
+            result["error"] = f"检查更新失败: {str(e)}"
 
     return result
 
 
-@app.post("/api/version/update")
-async def version_update():
-    """触发 pip 升级（返回 SSE 流式进度）"""
-    import subprocess
-    import sys
+@app.post("/api/version/download")
+async def version_download():
+    """下载最新版本的安装包到临时目录，返回本地文件路径（SSE 流式进度）"""
+    import ssl
+    import tempfile
+    from urllib.request import urlopen, Request
 
-    async def update_stream():
-        yield f"data: {json.dumps({'status': 'starting', 'message': '正在启动更新...'}, ensure_ascii=False)}\n\n"
-
+    async def download_stream():
+        # 先获取下载 URL
         try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "pip", "install", "--upgrade", "dev-agent",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            ctx = ssl.create_default_context()
+            gh_req = Request(
+                "https://api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+                headers={
+                    "User-Agent": "DevAgent-Updater",
+                    "Accept": "application/vnd.github.v3+json",
+                },
             )
+            with urlopen(gh_req, timeout=10, context=ctx) as resp:
+                gh_data = json.loads(resp.read().decode())
+                tag = gh_data.get("tag_name", "").lstrip("v")
 
-            async for line in proc.stdout:
-                decoded = line.decode("utf-8", errors="ignore").strip()
-                if decoded:
-                    yield f"data: {json.dumps({'status': 'progress', 'message': decoded}, ensure_ascii=False)}\n\n"
+            download_url = ""
+            file_name = ""
+            for asset in gh_data.get("assets", []):
+                name = asset.get("name", "")
+                if name.endswith(".exe"):
+                    download_url = asset.get("browser_download_url", "")
+                    file_name = name
+                    break
 
-            await proc.wait()
+            if not download_url:
+                yield f"data: {json.dumps({'status': 'error', 'message': '未找到可用安装包'}, ensure_ascii=False)}\n\n"
+                return
 
-            if proc.returncode == 0:
-                yield f"data: {json.dumps({'status': 'done', 'message': '更新完成，请重启应用以生效。'}, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps({'status': 'error', 'message': f'更新失败，退出码: {proc.returncode}'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'status': 'info', 'message': f'找到版本 {tag}，开始下载 {file_name}…'}, ensure_ascii=False)}\n\n"
+
+            # 下载到用户下载目录
+            download_dir = Path.home() / "Downloads"
+            download_dir.mkdir(exist_ok=True)
+            dest = download_dir / file_name
+
+            dl_req = Request(download_url, headers={"User-Agent": "DevAgent-Updater"})
+            with urlopen(dl_req, timeout=300, context=ctx) as dl_resp:
+                total = int(dl_resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = dl_resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            pct = int(downloaded * 100 / total)
+                            yield f"data: {json.dumps({'status': 'progress', 'message': f'下载中 {downloaded//1024//1024}MB / {total//1024//1024}MB ({pct}%)', 'percent': pct}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'status': 'done', 'message': '下载完成', 'file_path': str(dest)}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'message': f'更新异常: {str(e)}'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'status': 'error', 'message': f'下载失败: {str(e)}'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
-        update_stream(),
+        download_stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/api/version/install")
+async def version_install(request: Request):
+    """执行安装包（静默安装），返回状态"""
+    import subprocess
+
+    body = await request.json()
+    file_path = body.get("file_path", "")
+
+    if not file_path or not Path(file_path).exists():
+        return {"success": False, "error": f"安装包不存在: {file_path}"}
+
+    try:
+        # 以管理员权限静默运行安装包
+        # Inno Setup 支持 /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+        proc = subprocess.Popen(
+            [file_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return {"success": True, "message": "安装程序已启动，应用即将关闭以完成更新。", "pid": proc.pid}
+    except Exception as e:
+        return {"success": False, "error": f"启动安装程序失败: {str(e)}"}
 
 
 def _compare_versions(v1: str, v2: str) -> int:

@@ -221,23 +221,76 @@ ipcMain.handle('check-version', async () => {
   }
 });
 
-ipcMain.handle('update-version', async () => {
-  try {
+ipcMain.handle('update-download', async () => {
+  return new Promise((resolve, reject) => {
     const http = require('http');
-    return await new Promise((resolve, reject) => {
-      const req = http.request(`http://localhost:${backendPort}/api/version/update`, {
-        method: 'POST',
-      }, (res) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); }
-          catch { resolve({ success: false, error: data }); }
-        });
+    const req = http.request(`http://localhost:${backendPort}/api/version/download`, {
+      method: 'POST',
+    }, (res) => {
+      let buffer = '';
+      res.on('data', (chunk) => {
+        buffer += chunk.toString();
+        // 解析 SSE 流并推送到渲染进程
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const msg = JSON.parse(line.slice(6));
+              mainWindow?.webContents.send('update-download-progress', msg);
+              if (msg.status === 'done') {
+                resolve({ success: true, file_path: msg.file_path });
+              } else if (msg.status === 'error') {
+                resolve({ success: false, error: msg.message });
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
       });
-      req.on('error', reject);
-      req.end();
+      res.on('end', () => {
+        if (buffer) {
+          // 处理剩余缓冲
+          const lines = buffer.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const msg = JSON.parse(line.slice(6));
+                if (msg.status === 'done') {
+                  resolve({ success: true, file_path: msg.file_path });
+                  return;
+                } else if (msg.status === 'error') {
+                  resolve({ success: false, error: msg.message });
+                  return;
+                }
+              } catch { /* ignore */ }
+            }
+          }
+        }
+        resolve({ success: false, error: '下载未完成' });
+      });
     });
+    req.on('error', (e) => resolve({ success: false, error: e.message }));
+    req.end();
+  });
+});
+
+ipcMain.handle('update-install', async (_event, filePath) => {
+  try {
+    const { exec } = require('child_process');
+    // 以管理员权限静默安装
+    exec(
+      `"${filePath}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,
+      (error) => {
+        if (error) {
+          console.error('[DevAgent] Install error:', error);
+        }
+      }
+    );
+    // 给安装程序一点启动时间，然后退出应用
+    setTimeout(() => {
+      app.quit();
+    }, 2000);
+    return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
   }

@@ -9,5 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('maximize-change', (_event, isMaximized) => callback(isMaximized));
   },
   checkVersion: () => ipcRenderer.invoke('check-version'),
-  updateVersion: () => ipcRenderer.invoke('update-version'),
+  updateDownload: () => ipcRenderer.invoke('update-download'),
+  updateInstall: (filePath) => ipcRenderer.invoke('update-install', filePath),
+  onUpdateProgress: (callback) => {
+    ipcRenderer.on('update-download-progress', (_event, msg) => callback(msg));
+  },
 });
