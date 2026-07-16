@@ -270,7 +270,7 @@ async function checkVersion() {
     releaseUrl.value = data.release_url || ''
     downloadUrl.value = data.download_url || ''
   } catch (e) {
-    updateLog.value = [`检查更新失败: ${e.message}`]
+    updateLog.value = [{ text: `检查更新失败: ${e.message}`, url: '' }]
   } finally {
     checkingUpdate.value = false
   }
@@ -286,21 +286,21 @@ async function startUpdate() {
     if (window.electronAPI) {
       // 监听下载进度
       window.electronAPI.onUpdateProgress((msg) => {
-        updateLog.value.push(msg.message || JSON.stringify(msg))
+        updateLog.value.push({ text: msg.message || JSON.stringify(msg), url: '' })
       })
 
       const dlResult = await window.electronAPI.updateDownload()
       if (!dlResult.success) {
-        updateLog.value.push(`下载失败: ${dlResult.error}`)
+        updateLog.value.push({ text: `下载失败: ${dlResult.error}`, url: '' })
         updatingVersion.value = false
         return
       }
 
-      updateLog.value.push('安装包已下载，正在启动安装程序…')
+      updateLog.value.push({ text: '安装包已下载，正在启动安装程序…', url: '' })
 
       const installResult = await window.electronAPI.updateInstall(dlResult.file_path)
       if (!installResult.success) {
-        updateLog.value.push(`安装启动失败: ${installResult.error}`)
+        updateLog.value.push({ text: `安装启动失败: ${installResult.error}`, url: '' })
       }
       // 安装程序启动后，应用会自动退出
     } else {
@@ -319,13 +319,13 @@ async function startUpdate() {
           if (trimmed.startsWith('data: ')) {
             try {
               const msg = JSON.parse(trimmed.slice(6))
-              updateLog.value.push(msg.message || JSON.stringify(msg))
+              updateLog.value.push({ text: msg.message || JSON.stringify(msg), url: msg.release_url || '' })
               if (msg.status === 'done') {
                 downloadedFile = msg.file_path || ''
                 updateDone.value = true
               }
             } catch {
-              updateLog.value.push(trimmed.slice(6))
+              updateLog.value.push({ text: trimmed.slice(6), url: '' })
             }
           }
         }
@@ -333,12 +333,12 @@ async function startUpdate() {
 
       if (downloadedFile) {
         // 浏览器模式提示用户手动运行安装包
-        updateLog.value.push(`安装包已保存到: ${downloadedFile}`)
-        updateLog.value.push('请在文件管理器中双击运行安装包完成更新。')
+        updateLog.value.push({ text: `安装包已保存到: ${downloadedFile}`, url: '' })
+        updateLog.value.push({ text: '请在文件管理器中双击运行安装包完成更新。', url: '' })
       }
     }
   } catch (e) {
-    updateLog.value.push(`更新异常: ${e.message}`)
+    updateLog.value.push({ text: `更新异常: ${e.message}`, url: '' })
   } finally {
     updatingVersion.value = false
   }
@@ -543,7 +543,10 @@ async function startUpdate() {
       </div>
 
       <div v-if="updateLog.length" class="update-log-box">
-        <div v-for="(line, i) in updateLog" :key="i" class="log-line">{{ line }}</div>
+        <div v-for="(line, i) in updateLog" :key="i" class="log-line">
+          {{ line.text }}
+          <a v-if="line.url" :href="line.url" target="_blank" class="log-link">手动下载</a>
+        </div>
       </div>
 
       <div v-if="updateDone" class="update-done-hint">
@@ -766,6 +769,7 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 
 .update-log-box { background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 9px 13px; margin-bottom: 11px; max-height: 200px; overflow-y: auto; }
 .log-line { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.log-link { color: var(--accent); text-decoration: underline; margin-left: 6px; white-space: nowrap; }
 
 .update-done-hint { font-size: 11.5px; color: var(--success); font-weight: 600; margin-bottom: 11px; padding: 7px 13px; background: var(--success-soft); border: 1px solid var(--success); border-radius: var(--radius-md); }
 
