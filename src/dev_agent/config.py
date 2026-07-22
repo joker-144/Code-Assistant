@@ -33,25 +33,23 @@ class AgentConfig(BaseSettings):
     llm_chat_max_tokens: int = Field(default=8192, validation_alias="LLM_CHAT_MAX_TOKENS")
     llm_chat_timeout: float = Field(default=120.0, validation_alias="LLM_CHAT_TIMEOUT")
     llm_chat_streaming: bool = Field(default=True, validation_alias="LLM_CHAT_STREAMING")
-    llm_chat_max_tool_rounds: int = Field(default=20, validation_alias="LLM_CHAT_MAX_TOOL_ROUNDS")
+    llm_chat_max_tool_rounds: int = Field(default=12, validation_alias="LLM_CHAT_MAX_TOOL_ROUNDS")
 
     # ── 记忆系统配置 ──
     memory_sqlite_path: str = Field(default="data/memory.db", validation_alias="MEMORY_SQLITE_PATH")
 
-    # ── Embedding LLM 配置（LLM_EMBEDDING_* 前缀）──
-    # 智谱 Embedding-3: 兼容 OpenAI /v1/embeddings 接口
-    # base_url: https://open.bigmodel.cn/api/paas/v4
-    # model: embedding-3（默认 1024 维，可指定 dimensions 参数）
-    llm_embedding_api_key: str = Field(default="", validation_alias="LLM_EMBEDDING_API_KEY")
-    llm_embedding_base_url: str = Field(
-        default="https://open.bigmodel.cn/api/paas/v4", validation_alias="LLM_EMBEDDING_BASE_URL"
-    )
+    # ── Embedding 配置（LLM_EMBEDDING_* 前缀）──
+    # 本地 sentence-transformers 模型（all-MiniLM-L6-v2，384 维，约 80MB）
+    # 首次使用时自动从 HuggingFace 下载（通过 hf-mirror 镜像加速）
     llm_embedding_model: str = Field(
-        default="embedding-3", validation_alias="LLM_EMBEDDING_MODEL"
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        validation_alias="LLM_EMBEDDING_MODEL",
     )
-    llm_embedding_dimensions: int = Field(
-        default=1024, validation_alias="LLM_EMBEDDING_DIMENSIONS"
-    )
+
+    # ── 联网搜索配置 ──
+    # Tavily AI: 专为 AI 设计的搜索 API，每月 1000 次免费额度
+    # 获取地址: https://tavily.com
+    tavily_api_key: str = Field(default="", validation_alias="TAVILY_API_KEY")
 
     # ── Agent 配置 ──
     workspace: Path = Field(default=Path("."), validation_alias="DEV_AGENT_WORKSPACE")
@@ -65,8 +63,7 @@ class AgentConfig(BaseSettings):
         missing = []
         if not self.llm_chat_api_key or "your-" in self.llm_chat_api_key:
             missing.append("对话 LLM (LLM_CHAT_API_KEY)")
-        if not self.llm_embedding_api_key or "your-" in self.llm_embedding_api_key:
-            missing.append("Embedding LLM (LLM_EMBEDDING_API_KEY)")
+        # 本地 Embedder 不需要 API Key
         return missing
 
 
@@ -78,6 +75,9 @@ def get_config() -> AgentConfig:
     global _config
     if _config is None:
         _config = AgentConfig()
+        # 迁移：如果 .env 中残留旧的智谱 embedding-3 模型名，自动替换为本地模型
+        if _config.llm_embedding_model in ("embedding-3", "embedding-2", "Embedding-3"):
+            _config.llm_embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
     return _config
 
 

@@ -20,6 +20,7 @@ from dev_agent.tools.git import GitTool
 from dev_agent.tools.search import SearchTool
 from dev_agent.tools.shell import ShellTool
 from dev_agent.tools.skill_ops import SkillOps
+from dev_agent.tools.web import WebSearchTool, WebSearchProTool, WebFetchTool
 
 
 @dataclass
@@ -66,6 +67,15 @@ class ToolEngine:
         self.register("list_skills", skill_ops.list_skills, LIST_SKILLS_SCHEMA)
         self.register("load_skill", skill_ops.load_skill, LOAD_SKILL_SCHEMA)
         self.register("install_skill", skill_ops.install_skill, INSTALL_SKILL_SCHEMA)
+        self.register("search_remote_skills", skill_ops.search_remote_skills, SEARCH_REMOTE_SKILLS_SCHEMA)
+
+        # v0.6.0: 联网工具
+        web_search = WebSearchTool(self.workspace)
+        web_search_pro = WebSearchProTool(self.workspace)
+        web_fetch = WebFetchTool(self.workspace)
+        self.register("web_search", web_search.web_search, WEB_SEARCH_SCHEMA)
+        self.register("web_search_pro", web_search_pro.web_search_pro, WEB_SEARCH_PRO_SCHEMA)
+        self.register("web_fetch", web_fetch.web_fetch, WEB_FETCH_SCHEMA)
 
     def register(self, name: str, func: Callable[..., Awaitable[ToolResult]], schema: dict[str, Any]):
         """注册工具"""
@@ -334,6 +344,87 @@ INSTALL_SKILL_SCHEMA = {
                 "name": {"type": "string", "description": "要安装的技能名称"},
             },
             "required": ["name"],
+        },
+    },
+}
+
+SEARCH_REMOTE_SKILLS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "search_remote_skills",
+        "description": (
+            "在远程技能库中搜索技能。"
+            "返回候选技能列表，包含 slug、名称、描述、标签等信息。"
+            "找到后用 install_skill 工具 + slug 安装。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键词", "default": ""},
+                "limit": {"type": "integer", "description": "返回结果数", "default": 10},
+            },
+        },
+    },
+}
+
+
+# ── 联网工具 Schema ──
+
+WEB_SEARCH_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": (
+            "使用 DuckDuckGo 进行网络搜索（免费免配置）。"
+            "适用于快速获取网络信息、查找技术文档、了解最新动态。"
+            "如果搜索结果质量不高或关联性低，请改用 web_search_pro 获取更精准的结果。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键词"},
+                "max_results": {"type": "integer", "description": "最大返回结果数", "default": 8},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+WEB_SEARCH_PRO_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "web_search_pro",
+        "description": (
+            "使用 Tavily AI 进行高质量网络搜索（专为 AI 设计，返回结构化结果和 AI 摘要）。"
+            "当 web_search (DuckDuckGo) 结果质量不高、关联性低时使用。"
+            "需要在 .env 中配置 TAVILY_API_KEY（每月 1000 次免费额度）。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键词"},
+                "max_results": {"type": "integer", "description": "最大返回结果数", "default": 8},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+WEB_FETCH_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "web_fetch",
+        "description": (
+            "抓取指定 URL 的网页正文内容。"
+            "适用于已知具体网址时获取完整页面信息，如技术文档、博客文章、API 文档等。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "要抓取的网页 URL"},
+                "max_length": {"type": "integer", "description": "返回内容最大字符数", "default": 8000},
+            },
+            "required": ["url"],
         },
     },
 }

@@ -13,5 +13,6 @@ build/
 node_modules/
 web/dist/
 web/.npm-cache/
-skills/${APPDATA}
 web/graphify-out
+# 旧 skills 目录中的垃圾文件
+skills/${APPDATA}

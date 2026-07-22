@@ -17,6 +17,9 @@
 与单 Agent Loop 的关系:
   Orchestrator 内部使用 AgentLoop 作为 Worker 的执行引擎，
   每个 Worker 是独立的 AgentLoop 实例，拥有自己的上下文和工具访问权限。
+
+智能体定义从 agents/ 文件夹的 agent.json 加载（见 loader.py），
+专属技能自动注入到 Worker 的 system prompt。
 """
 from __future__ import annotations
 
@@ -29,15 +32,16 @@ from typing import Any, AsyncIterator, Optional
 
 from dev_agent.agent.loop import AgentLoop, LoopEvent
 from dev_agent.config import get_config
+from dev_agent.agents.loader import get_agent_loader
 
 
 class AgentRole(Enum):
     """Agent 角色"""
-    SUPERVISOR = "supervisor"   # 主管：拆解任务、分配、汇总
-    PLANNER = "planner"         # 规划师：设计方案、拆分步骤
-    CODER = "coder"             # 编码师：执行代码生成和修改
-    REVIEWER = "reviewer"       # 审查师：代码审查、质量检查
-    DEBUGGER = "debugger"       # 调试师：定位问题、修复错误
+    SUPERVISOR = "supervisor"
+    PLANNER = "planner"
+    CODER = "coder"
+    REVIEWER = "reviewer"
+    DEBUGGER = "debugger"
 
 
 @dataclass
@@ -46,10 +50,10 @@ class SubTask:
     id: str
     role: AgentRole
     description: str
-    context: str = ""  # 该子任务需要的上下文信息
-    dependencies: list[str] = field(default_factory=list)  # 依赖的子任务 ID
-    result: str = ""  # 执行结果
-    status: str = "pending"  # pending | running | done | failed
+    context: str = ""
+    dependencies: list[str] = field(default_factory=list)
+    result: str = ""
+    status: str = "pending"
 
 
 @dataclass
@@ -65,74 +69,31 @@ class AgentOrchestrator:
     """多 Agent 协同编排器
 
     每个 Worker Agent 是独立的 AgentLoop 实例，
-    拥有独立的上下文和角色化的 System Prompt。
+    拥有独立的上下文和角色化的 System Prompt（从 agents/{role}/agent.json 加载）。
     """
 
-    # Worker prompt 模板
-    ROLE_PROMPTS = {
-        AgentRole.PLANNER: """你是 DevAgent 的技术规划师 (Planner)。你的职责是:
-1. 根据需求设计技术方案和架构
-2. 将大任务拆分为可执行的步骤
-3. 确定技术选型和依赖关系
-4. 输出结构化的任务计划
-
-你不需要写代码，只需输出清晰的技术方案和步骤拆解。
-输出时使用 Markdown 格式，包含方案概述、步骤列表、技术选型三部分。""",
-
-        AgentRole.CODER: """你是 DevAgent 的高级编码师 (Coder)。你的职责是:
-1. 按照规划师提供方案编写高质量代码
-2. 遵循项目现有代码风格和架构
-3. 优先使用 edit_file 精准修改，避免整文件重写
-4. 编写代码后运行测试验证
-
-代码规范: PEP 8, type hints, docstrings, 错误处理。""",
-
-        AgentRole.REVIEWER: """你是 DevAgent 的代码审查师 (Reviewer)。你的职责是:
-1. 审查代码的正确性、安全性和性能
-2. 检查是否遵循方案设计
-3. 发现潜在的 bug、边界情况和性能问题
-4. 输出结构化的审查报告（通过/需修改/严重问题）
-
-审查维度: 逻辑正确性 / 安全性 / 性能 / 代码风格 / 可维护性。""",
-
-        AgentRole.DEBUGGER: """你是 DevAgent 的调试专家 (Debugger)。你的职责是:
-1. 分析错误日志和堆栈跟踪
-2. 定位问题根因
-3. 提出修复方案
-4. 验证修复后的代码
-
-调试方法: 先理解错误 → 定位根因 → 最小化修复 → 验证。""",
-    }
-
-    # 主管的 System Prompt
-    SUPERVISOR_PROMPT = """你是 DevAgent 的项目主管 (Supervisor)。你的职责是:
-1. 分析用户需求，判断是否需要多 Agent 协作
-2. 将复杂需求拆解为子任务，分配给 Planner/Coder/Reviewer/Debugger
-3. 检查各 Agent 的输出一致性和完整性
-4. 发现问题时触发自我反思和重新分配
-5. 汇总最终结果给用户
-
-决策规则:
-- 简单代码生成/修改（单一文件、少于50行）→ 直接由 Coder 完成，不需要 Planner
-- 需要技术方案设计 → Planner → Coder 流水线
-- 复杂功能（跨多文件、涉及架构变更）→ Planner → Coder → Reviewer → Debugger 全流程
-- 修复 bug → 直接由 Debugger 处理
-- 代码审查需求 → 直接由 Reviewer 处理
-
-输出格式要求:
-- 当你需要拆解任务时，用 JSON 格式输出子任务列表（仅对内部，最终对用户用自然语言）
-- 当你汇总结果时，用清晰的中文总结"""
+    @classmethod
+    def get_all_role_info(cls) -> list[dict]:
+        """获取所有 Agent 角色的信息（用于 API 动态展示）"""
+        return get_agent_loader().get_all_role_info()
 
     def __init__(self, workspace: Optional[Path] = None):
         config = get_config()
         self.workspace = workspace or config.workspace
         self._workers: dict[AgentRole, AgentLoop] = {}
         self._history: list[SubTask] = []
+        self._loader = get_agent_loader()
 
     def _get_worker(self, role: AgentRole) -> AgentLoop:
-        """获取或创建 Worker Agent"""
+        """获取或创建 Worker Agent
+
+        system prompt 从 agents/{role}/agent.json 加载，并自动注入专属技能。
+        """
         if role not in self._workers:
-            prompt = self.ROLE_PROMPTS.get(role, "")
+            prompt = self._loader.get_system_prompt(role.value)
+            if not prompt:
+                # 回退：loader 中没有定义时使用空字符串
+                prompt = ""
             self._workers[role] = AgentLoop(
                 workspace=self.workspace,
                 system_prompt=prompt,
@@ -269,14 +230,7 @@ class AgentOrchestrator:
         return ""
 
     def _needs_multi_agent(self, user_input: str) -> bool:
-        """判断是否需要启动多 Agent 协作
-
-        规则:
-        - 包含"方案"/"设计"/"架构"/"系统" → 多 Agent
-        - 包含"审查"/"review"/"检查代码" → 多 Agent
-        - 包含"重构"/"优化整个" → 多 Agent
-        - 否则单 Agent
-        """
+        """判断是否需要启动多 Agent 协作"""
         multi_keywords = [
             "方案", "设计", "架构", "系统", "审查", "review",
             "重构", "大型", "完整项目", "优化整个", "分析代码",
@@ -286,11 +240,7 @@ class AgentOrchestrator:
         return any(kw in lower for kw in multi_keywords)
 
     def _has_file_changes(self, agent: AgentLoop) -> bool:
-        """检查 Agent 的文件操作工具是否进行了实际文件修改
-
-        通过检查 Agent 工作区的 git 状态判断是否有未提交的文件变更。
-        若不在 git 仓库中，默认返回 True（乐观估计有改动）。
-        """
+        """检查 Agent 的文件操作工具是否进行了实际文件修改"""
         import subprocess
         try:
             result = subprocess.run(
@@ -300,10 +250,8 @@ class AgentOrchestrator:
                 text=True,
                 timeout=10,
             )
-            # 有 diff 输出 = 有文件变更
             return bool(result.stdout.strip())
         except FileNotFoundError:
-            # git 不可用
             return True
         except Exception:
             return True
@@ -312,13 +260,13 @@ class AgentOrchestrator:
         """将 AgentLoop 事件映射为 CollaborationEvent"""
         mapping = {
             "tool_start": "worker_start",
-            "tool_result": "worker_start",  # 工具结果也合并到 worker 生命周期
+            "tool_result": "worker_start",
             "text": "text",
             "error": "worker_done",
         }
         mapped_type = mapping.get(event.type, "worker_start")
         if mapped_type == "worker_start" and event.type == "tool_result":
-            return None  # 工具结果不单独暴露
+            return None
         return CollaborationEvent(
             type=mapped_type,
             role=role,

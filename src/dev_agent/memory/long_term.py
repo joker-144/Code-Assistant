@@ -1,251 +1,157 @@
 """
 长期记忆系统 — Long-Term Memory
 
-在现有 MemoryStore SQLite 基础上增强:
-- 经验教训的语义检索（基于向量相似度）
-- 会话关键节点提取与存储
-- 项目知识图谱构建（文件间依赖关系）
-- 跨会话记忆召回
+功能:
+  1. 跨会话摘要管理 — 每条对话结束后自动生成摘要
+  2. 关键知识提取 — 从对话中提取决策、用户偏好、技术栈
+  3. 记忆召回 — 在 system prompt 中注入相关历史摘要
+  4. 重要性评分 — 高频访问的记忆自动提升重要性
 
-参考 2026 标准：向量数据库 + 知识图谱混合架构
+与工作记忆的区别:
+  - 工作记忆: 当前对话的完整消息列表（实时上下文）
+  - 长期记忆: 所有过往对话的摘要 + 经验教训（持久化 SQLite）
 """
 from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
-
-from dev_agent.memory.store import MemoryStore
-
-
-@dataclass
-class KnowledgeNode:
-    """知识图谱节点"""
-    node_type: str  # "file" | "function" | "class" | "concept"
-    name: str
-    description: str = ""
-    metadata: dict = None  # type: ignore[assignment]
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
-
-
-@dataclass
-class KnowledgeEdge:
-    """知识图谱边"""
-    source: str   # 源节点名称
-    target: str   # 目标节点名称
-    relation: str  # "imports" | "calls" | "inherits" | "depends_on" | "related_to"
+from dev_agent.memory.store import MemoryStore, get_store
 
 
 class LongTermMemory:
-    """长期记忆管理器
+    """长期记忆管理器 — 跨会话记忆
 
-    功能:
-    1. 经验教训管理 — 每次对话后提取关键经验
-    2. 语义检索 — 基于向量相似度检索历史经验
-    3. 知识图谱 — 项目文件/函数/类的依赖关系
-    4. 会话摘要 — 跨会话的记忆召回
+    每次对话结東后自动生成会话摘要存入 SQLite，
+    新对话开始时注入最相关的历史摘要到 system prompt。
     """
 
+    # 记忆类型
+    TYPE_LESSON = "lesson"
+    TYPE_PREFERENCE = "preference"
+    TYPE_DECISION = "decision"
+    TYPE_TASK = "task"
+    TYPE_TECH_STACK = "tech_stack"
+
     def __init__(self, store: Optional[MemoryStore] = None):
-        self.store = store or MemoryStore()
-        self._graph_nodes: dict[str, KnowledgeNode] = {}
-        self._graph_edges: list[KnowledgeEdge] = []
+        self.store = store or get_store()
 
-    # ── 经验教训 ──
+    # ── 会话摘要管理 ──
 
-    def learn(self, content: str, tags: str = "", embedding: Optional[np.ndarray] = None) -> int:
-        """记录一条经验教训
-
-        Args:
-            content: 经验内容
-            tags: 标签（逗号分隔）
-            embedding: 向量（可选，用于后续语义检索）
-
-        Returns:
-            记录 ID
-        """
-        emb_bytes = embedding.tobytes() if embedding is not None else b""
-        return self.store.add_lesson(content, tags, emb_bytes)
-
-    def recall_lessons(self, tags: Optional[str] = None, limit: int = 10) -> list[dict]:
-        """召回经验教训
-
-        Args:
-            tags: 按标签过滤（可选）
-            limit: 最大返回数
-        """
-        if tags:
-            rows = self.store.conn.execute(
-                "SELECT * FROM lessons WHERE tags LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{tags}%", limit),
-            ).fetchall()
-        else:
-            rows = self.store.conn.execute(
-                "SELECT * FROM lessons ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
-
-    def semantic_recall(self, query_embedding: np.ndarray, top_k: int = 5) -> list[dict]:
-        """基于向量相似度检索经验
-
-        Args:
-            query_embedding: 查询向量
-            top_k: 返回数量
-        """
-        rows = self.store.conn.execute(
-            "SELECT * FROM lessons WHERE embedding IS NOT NULL AND length(embedding) > 0"
-        ).fetchall()
-
-        scored = []
-        for row in rows:
-            emb = np.frombuffer(row["embedding"], dtype=np.float32)
-            if emb.shape[0] != query_embedding.shape[0]:
-                continue
-            score = float(np.dot(query_embedding, emb) / (
-                np.linalg.norm(query_embedding) * np.linalg.norm(emb) + 1e-8
-            ))
-            scored.append((score, dict(row)))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [item for _, item in scored[:top_k]]
-
-    # ── 知识图谱 ──
-
-    def add_node(self, node: KnowledgeNode):
-        """添加知识图谱节点"""
-        self._graph_nodes[node.name] = node
-
-    def add_edge(self, edge: KnowledgeEdge):
-        """添加知识图谱边"""
-        if edge not in self._graph_edges:
-            self._graph_edges.append(edge)
-
-    def get_related_files(self, file_path: str, depth: int = 1) -> list[str]:
-        """获取与指定文件相关联的其他文件
-
-        Args:
-            file_path: 文件路径
-            depth: 关系深度（1=直接依赖，2=间接依赖）
-        """
-        related = set()
-        current = {file_path}
-
-        for _ in range(depth):
-            next_level = set()
-            for edge in self._graph_edges:
-                if edge.source in current:
-                    next_level.add(edge.target)
-                if edge.target in current:
-                    next_level.add(edge.source)
-            related.update(next_level)
-            current = next_level
-
-        return sorted(related)
-
-    def build_project_graph(self, workspace_files: list[str]):
-        """从项目文件列表构建知识图谱（基于 import 分析）
-
-        分析 Python import 语句建立文件间依赖关系。
-        """
-        import re
-
-        import_pattern = re.compile(
-            r"^(?:from\s+(\S+)\s+import|import\s+(\S+))",
-            re.MULTILINE,
+    def save_session_summary(
+        self,
+        conversation_id: str,
+        summary: str,
+        key_decisions: str = "",
+        user_preferences: str = "",
+        completed_tasks: str = "",
+        unresolved_items: str = "",
+        tech_stack: str = "",
+    ) -> int:
+        """保存对话会话摘要"""
+        return self.store.save_session_summary(
+            conversation_id=conversation_id,
+            summary=summary,
+            key_decisions=key_decisions,
+            user_preferences=user_preferences,
+            completed_tasks=completed_tasks,
+            unresolved_items=unresolved_items,
+            tech_stack=tech_stack,
         )
 
-        for fpath in workspace_files:
-            node_name = fpath.replace("/", ".").replace(".py", "").replace("\\", ".")
-            self.add_node(KnowledgeNode(
-                node_type="file",
-                name=node_name,
-                description=fpath,
-            ))
+    def get_recent_summaries(self, limit: int = 10) -> list[dict]:
+        """获取最近 N 条会话摘要（不含当前会话）"""
+        return self.store.get_session_summaries(limit=limit)
 
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                continue
+    # ── 记忆存储与召回 ──
 
-            for match in import_pattern.finditer(content):
-                imported = match.group(1) or match.group(2)
-                if imported:
-                    self.add_edge(KnowledgeEdge(
-                        source=node_name,
-                        target=imported.split(".")[0],
-                        relation="imports",
-                    ))
+    def store_memory(
+        self,
+        content: str,
+        memory_type: str = "lesson",
+        conversation_id: str = "",
+        embedding: bytes = b"",
+        importance: float = 0.5,
+    ) -> int:
+        """存储一条记忆（可选带向量）"""
+        return self.store.store_memory_embedding(
+            content=content,
+            memory_type=memory_type,
+            conversation_id=conversation_id,
+            embedding=embedding,
+            importance=importance,
+        )
 
-    def get_graph_stats(self) -> dict:
-        """知识图谱统计"""
-        return {
-            "nodes": len(self._graph_nodes),
-            "edges": len(self._graph_edges),
-            "node_types": {
-                t: sum(1 for n in self._graph_nodes.values() if n.node_type == t)
-                for t in {n.node_type for n in self._graph_nodes.values()}
-            },
-            "top_relations": self._get_top_relations(),
-        }
+    def recall_important_memories(self, limit: int = 8) -> list[dict]:
+        """召回最重�的记忆（按重要性 + 访问频率排序）
 
-    def _get_top_relations(self) -> list[dict]:
-        """获取最常见的边关系"""
-        from collections import Counter
-        counter = Counter(e.relation for e in self._graph_edges)
-        return [{"relation": rel, "count": cnt} for rel, cnt in counter.most_common(5)]
-
-    # ── 会话关键节点 ──
-
-    def extract_session_insights(self, messages: list[dict]) -> str:
-        """从对话消息中提取关键洞察
-
-        启发式规则提取: 决策点、发现的问题、成功经验
+        用于注入 system prompt，让 AI 记住关键历史信息。
         """
-        insights = []
+        return self.store.query_memories_by_importance(limit=limit)
 
-        for msg in messages:
-            content = msg.get("content", "")
-            role = msg.get("role", "")
+    def recall_by_type(self, memory_type: str, limit: int = 5) -> list[dict]:
+        """按类型召回记忆"""
+        rows = self.store.conn.execute(
+            "SELECT content, importance, created_at FROM memory_embeddings "
+            "WHERE memory_type = ? ORDER BY importance DESC, access_count DESC LIMIT ?",
+            (memory_type, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
-            # 跳过短消息
-            if len(content) < 30:
-                continue
+    def update_importance(self, content_keyword: str, delta: float = 0.1):
+        """当记忆被成功引用时提升重要性"""
+        self.store.conn.execute(
+            "UPDATE memory_embeddings SET importance = MIN(1.0, importance + ?) "
+            "WHERE content LIKE ?",
+            (delta, f"%{content_keyword}%"),
+        )
+        self.store.conn.commit()
 
-            # 提取决策信息
-            indicators = {
-                "decision": ["决定", "选择", "采用", "最终方案"],
-                "problem": ["错误", "失败", "问题", "bug", "异常"],
-                "success": ["成功", "完成", "通过", "解决"],
-                "learning": ["发现", "注意", "以后", "下次"],
-            }
+    # ── 格式化输出 ──
 
-            for insight_type, keywords in indicators.items():
-                if any(kw in content for kw in keywords):
-                    if role == "assistant":
-                        insights.append(f"[{insight_type}] Agent: {content[:200]}")
-                    elif role == "user":
-                        insights.append(f"[{insight_type}] User: {content[:200]}")
+    def format_for_prompt(self) -> str:
+        """生成供 system prompt 注入的长期记忆文本
 
-        return "\n".join(insights[-10:])  # 保留最近 10 条
+        结构:
+          - 用户偏好 (preference)
+          - 过往决策 (decision)
+          - 已完成任务 (task)
+          - 重要经验教训 (lesson)
+        """
+        memories = self.recall_important_memories(limit=8)
+        if not memories:
+            return ""
 
-    # ── 统计 ──
+        lines = ["\n## 长期记忆（跨会话）\n"]
 
-    def stats(self) -> dict:
-        """长期记忆统计"""
-        base = self.store.stats()
-        base.update({
-            "graph_nodes": len(self._graph_nodes),
-            "graph_edges": len(self._graph_edges),
-        })
-        return base
+        # 按类型分组
+        categorized = {
+            "preference": [],
+            "decision": [],
+            "task": [],
+            "lesson": [],
+        }
+        for m in memories:
+            mtype = m.get("memory_type", "lesson")
+            if mtype in categorized:
+                categorized[mtype].append(m["content"])
+
+        labels = {
+            "preference": "用户偏好",
+            "decision": "关键决策",
+            "task": "已完成任务",
+            "lesson": "经验教训",
+        }
+        for mtype, label in labels.items():
+            items = categorized[mtype]
+            if items:
+                lines.append(f"\n**{label}:**")
+                for item in items[:3]:
+                    lines.append(f"- {item[:200]}")
+
+        lines.append("\n*这些记忆来源于历史对话，AI 可据此保持行为一致性。*")
+        return "\n".join(lines) + "\n"
 
 
 def create_long_term_memory() -> LongTermMemory:

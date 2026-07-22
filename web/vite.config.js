@@ -37,8 +37,23 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
+      // 禁用压缩防止 SSE 流被缓冲
+      compress: false,
       proxy: {
-        '/chat': 'http://localhost:8000',
+        '/chat': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              // SSE 需要 keep-alive 和禁用缓存
+              proxyReq.setHeader('Connection', 'keep-alive');
+              proxyReq.setHeader('Accept', 'text/event-stream');
+              proxyReq.setHeader('Cache-Control', 'no-store');
+            });
+          },
+          proxyTimeout: 180000,
+          timeout: 180000,
+        },
         '/conversations': 'http://localhost:8000',
         '/index': 'http://localhost:8000',
         '/memory': 'http://localhost:8000',

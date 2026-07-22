@@ -1,13 +1,23 @@
 import { ref, nextTick } from 'vue'
 
-const SSE_TIMEOUT_MS = 60000 // 60 秒无响应超时（配合后端 5s 心跳保活）
+const SSE_TIMEOUT_MS = 60000   // 60 秒无响应超时（配合后端 10s 心跳保活）
+const CONV_ID_KEY = 'devagent-conversation-id'
+
+function loadConvId() {
+  try { return localStorage.getItem(CONV_ID_KEY) } catch { return null }
+}
+function saveConvId(id) {
+  try { id ? localStorage.setItem(CONV_ID_KEY, id) : localStorage.removeItem(CONV_ID_KEY) } catch {}
+}
 
 export function useChat() {
   const messages = ref([])
   const isProcessing = ref(false)
   const statusText = ref('系统就绪')
-  const conversationId = ref(null)
+  const conversationId = ref(loadConvId())  // 从 localStorage 恢复
   const messagesRef = ref(null)
+  const messageSentCount = ref(0)  // 每发一条消息+1，父组件 watch 后刷新侧栏
+  const collaborateMode = ref(false)  // 多智能体协作模式开关
 
   let currentAssistant = null
   let abortController = null
@@ -20,12 +30,146 @@ export function useChat() {
   }
 
   function reset() {
-    messages.value = [{
-      role: 'assistant',
-      content: '你好！我是 DevAgent，一个 AI 编码智能体。告诉我你的开发需求，我会自主完成：读取文件、编辑代码、运行命令、搜索代码库。',
-      tools: [],
-    }]
+    messages.value = []
     conversationId.value = null
+    saveConvId(null)
+  }
+
+  async function loadConversation(convId) {
+    if (!convId || isProcessing.value) return
+    try {
+      const res = await fetch(`/conversations/${convId}/messages?limit=200`)
+      if (!res.ok) return
+      const data = await res.json()
+      conversationId.value = convId
+      saveConvId(convId)
+      // 策略：将所有相同 user/assistant 轮的工具调用合并到同一条消息中
+      const loaded = []
+      let currentAssistant = null  // 当前正在构建的 assistant 消息
+
+      for (const msg of (data.messages || [])) {
+        if (msg.role === 'user') {
+          currentAssistant = null
+          loaded.push({ role: 'user', content: msg.content, tools: [] })
+        } else if (msg.role === 'assistant') {
+          // 检查 tool_args 中是否包含 tool_calls（OpenAI 格式）
+          const toolCallsFromArgs = safeParseJson(msg.tool_args)
+          const hasToolCalls = Array.isArray(toolCallsFromArgs) && toolCallsFromArgs.length > 0
+
+          if (msg.tool_name || hasToolCalls) {
+            // 工具调用消息 — 合并到当前 assistant
+            if (!currentAssistant) {
+              currentAssistant = { role: 'assistant', content: '', tools: [] }
+              loaded.push(currentAssistant)
+            }
+            if (hasToolCalls) {
+              // 从 tool_args 中提取工具调用信息
+              for (const tc of toolCallsFromArgs) {
+                const fn = tc.function || tc
+                const tName = fn.name || msg.tool_name || ''
+                const tArgs = fn.arguments ? safeParseJson(fn.arguments) : {}
+                const agent = makeAgentFlag(tName, tArgs)
+                currentAssistant.tools.push({
+                  name: tName,
+                  args: tArgs,
+                  content: '',
+                  result: '',
+                  expanded: false,
+                  done: false,
+                  tokens: {},
+                  isAgent: agent.isAgent,
+                  agentName: agent.agentName,
+                })
+              }
+            } else if (msg.tool_name) {
+              const agent = makeAgentFlag(msg.tool_name, {})
+              currentAssistant.tools.push({
+                name: msg.tool_name,
+                args: {},
+                content: '',
+                result: msg.content || '',
+                expanded: false,
+                done: true,
+                tokens: {},
+                isAgent: agent.isAgent,
+                agentName: agent.agentName,
+              })
+            }
+          } else {
+            // 纯文本 assistant 消息（工具调用后的最终回复）
+            if (currentAssistant) {
+              currentAssistant.content = msg.content || ''
+              currentAssistant = null
+            } else {
+              loaded.push({ role: 'assistant', content: msg.content || '', tools: [] })
+            }
+          }
+        } else if (msg.role === 'tool') {
+          // 工具执行结果 — 更新当前 assistant 中对应工具的结果
+          if (!currentAssistant) {
+            currentAssistant = { role: 'assistant', content: '', tools: [] }
+            loaded.push(currentAssistant)
+          }
+          // 查找通过 tool_args 创建的占位符工具（name 匹配且 done=false）
+          const tool = currentAssistant.tools.find(
+            t => t.name === (msg.tool_name || '') && !t.done
+          )
+          if (tool) {
+            tool.result = msg.content || ''
+            tool.done = true
+          } else {
+            const agent = makeAgentFlag(msg.tool_name || '', {})
+            currentAssistant.tools.push({
+              name: msg.tool_name || '',
+              args: {},
+              content: '',
+              result: msg.content || '',
+              expanded: false,
+              done: true,
+              tokens: {},
+              isAgent: agent.isAgent,
+              agentName: agent.agentName,
+            })
+          }
+        }
+      }
+
+      messages.value = loaded.length > 0 ? loaded : []
+      scrollToBottom()
+    } catch {
+      // 静默失败
+    }
+  }
+
+  function safeParseJson(str) {
+    if (!str) return {}
+    try { return JSON.parse(str) } catch { return {} }
+  }
+
+  // 智能体调用识别：只有 load_skill(name="xxx") 指定了技能名时才标记
+  function makeAgentFlag(toolName, args) {
+    if (toolName === 'load_skill') {
+      const agentName = (args && args.name) || ''
+      return { isAgent: !!agentName, agentName }
+    }
+    return { isAgent: false, agentName: '' }
+  }
+
+  async function deleteConversation(convId) {
+    if (!convId) return false
+    try {
+      const res = await fetch(`/conversations/${convId}`, { method: 'DELETE' })
+      if (res.ok) {
+        // 如果删除的是当前对话，清空消息
+        if (conversationId.value === convId) {
+          reset()
+        }
+        return true
+      }
+    } catch {
+      // 静默失败
+    }
+    return false
   }
 
   function cancel() {
@@ -57,13 +201,13 @@ export function useChat() {
     })
     scrollToBottom()
 
-    // 创建助手消息容器
-    currentAssistant = {
+    // 创建助手消息容器（push 后重新获取响应式代理引用）
+    messages.value.push({
       role: 'assistant',
       content: '',
       tools: [],
-    }
-    messages.value.push(currentAssistant)
+    })
+    currentAssistant = messages.value[messages.value.length - 1]
     scrollToBottom()
 
     try {
@@ -109,6 +253,9 @@ export function useChat() {
       }
       if (settings) {
         body.settings = settings
+      }
+      if (collaborateMode.value) {
+        body.mode = 'collaborate'
       }
 
       // SSE 超时兜底：3 分钟无任何数据则中止
@@ -192,6 +339,9 @@ export function useChat() {
           result: '',
           expanded: false,
           done: false,
+          tokens: data.tokens || {},
+          isAgent: data.is_agent || false,
+          agentName: data.agent_name || '',
         })
         statusText.value = `执行: ${data.tool}`
         scrollToBottom()
@@ -208,11 +358,80 @@ export function useChat() {
         break
 
       case 'text':
-        currentAssistant.content += data.content
+        // 协作模式下 text 事件带 role 字段，在内容前标注角色
+        if (data.role) {
+          const roleLabels = {
+            supervisor: '主管', planner: '规划师', coder: '编码师',
+            reviewer: '审查师', debugger: '调试专家',
+          }
+          const label = roleLabels[data.role] || data.role
+          if (!currentAssistant.content) {
+            currentAssistant.content = `**[${label}]** ${data.content}`
+          } else {
+            currentAssistant.content += data.content
+          }
+        } else {
+          currentAssistant.content += data.content
+        }
         scrollToBottom()
         break
 
+      case 'collaborate':
+        // 多智能体协作事件 — 展示协作进度
+        {
+          const phaseLabels = {
+            plan: '规划', start: '开始', done: '完成', reflection: '反思',
+          }
+          const roleLabels = {
+            supervisor: '主管', planner: '规划师', coder: '编码师',
+            reviewer: '审查师', debugger: '调试专家',
+          }
+          const label = roleLabels[data.role] || data.role
+          const phase = phaseLabels[data.phase] || data.phase
+          statusText.value = `[${label}] ${phase}: ${data.content || ''}`
+
+          // 将协作进度作为工具调用展示（便于用户看到流程）
+          if (data.phase === 'start' || data.phase === 'plan') {
+            currentAssistant.tools.push({
+              name: `collaborate_${data.role}`,
+              args: { phase: data.phase },
+              content: data.content || '',
+              result: '',
+              expanded: false,
+              done: false,
+              isCollaborate: true,
+              agentName: label,
+            })
+          } else if (data.phase === 'done' || data.phase === 'reflection') {
+            // 更新最后一个对应角色的协作工具状态
+            const last = [...currentAssistant.tools].reverse().find(
+              t => t.isCollaborate && t.name === `collaborate_${data.role}` && !t.done
+            )
+            if (last) {
+              last.result = data.content || ''
+              last.done = true
+            } else {
+              currentAssistant.tools.push({
+                name: `collaborate_${data.role}`,
+                args: { phase: data.phase },
+                content: '',
+                result: data.content || '',
+                expanded: false,
+                done: true,
+                isCollaborate: true,
+                agentName: label,
+              })
+            }
+          }
+          scrollToBottom()
+        }
+        break
+
       case 'error':
+        if (data.conversation_id) {
+          conversationId.value = data.conversation_id
+          saveConvId(data.conversation_id)
+        }
         currentAssistant.tools.push({
           name: 'error',
           args: {},
@@ -228,10 +447,12 @@ export function useChat() {
       case 'done':
         if (data.conversation_id) {
           conversationId.value = data.conversation_id
+          saveConvId(data.conversation_id)
         }
         if (!currentAssistant.content && currentAssistant.tools.length === 0) {
           currentAssistant.content = '（无回复）'
         }
+        messageSentCount.value++
         break
     }
   }
@@ -242,9 +463,13 @@ export function useChat() {
     statusText,
     conversationId,
     messagesRef,
+    messageSentCount,
+    collaborateMode,
     sendMessage,
     cancel,
     reset,
+    loadConversation,
+    deleteConversation,
     scrollToBottom,
   }
 }

@@ -715,7 +715,7 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 .number-input:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 .hint { font-size: 10.5px; color: var(--text-faint); margin-top: 5px; line-height: 1.5; }
-.hint.error { color: #f87171; }
+.hint.error { color: var(--error); }
 .hint.warning { color: var(--text-muted); background: var(--bg-card); padding: 9px 13px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 11px; }
 
 .models-status {

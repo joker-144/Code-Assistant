@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
-import 'highlight.js/styles/github-dark.css'
+import 'highlight.js/styles/github.css'
 import ToolCall from './ToolCall.vue'
 
 marked.setOptions({
@@ -101,10 +101,10 @@ const renderedContent = computed(() => {
 .user-bubble {
   max-width: 76%; margin-left: auto;
   background: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  border-radius: 12px 12px 4px 12px;
-  padding: 8px 13px;
-  box-shadow: var(--shadow-xs);
+  border: 1px solid var(--border);
+  border-radius: 14px 14px 4px 14px;
+  padding: 9px 14px;
+  box-shadow: var(--shadow-sm);
 }
 .user-label {
   display: flex; align-items: center; gap: 4px;
@@ -121,11 +121,11 @@ const renderedContent = computed(() => {
 }
 .avatar {
   width: 19px; height: 19px;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
   border-radius: 4.5px;
   display: flex; align-items: center; justify-content: center;
   color: white;
-  box-shadow: 0 1px 4px rgba(88,166,255,0.18);
+  box-shadow: 0 1px 4px var(--accent-glow);
 }
 .assistant-label span {
   font-size: 10.5px; font-weight: 600; color: var(--accent);

@@ -53,10 +53,14 @@ class LoopEvent:
     content: str = ""
     tool_name: str = ""
     tool_args: dict = None
+    tokens: dict = None      # 该轮 LLM 调用的 token 用量 {prompt, completion, total}
+    skill_name: str = ""     # 当工具为技能调用时，记录使用的技能名
 
     def __post_init__(self):
         if self.tool_args is None:
             self.tool_args = {}
+        if self.tokens is None:
+            self.tokens = {}
 
 
 class AgentLoop:
@@ -88,6 +92,33 @@ class AgentLoop:
         self.llm = llm or LLMClient()
         self.tools = tools or ToolEngine(self.workspace)
         self.system_prompt = system_prompt or get_system_prompt()
+
+        # 注入已安装技能信息
+        try:
+            from dev_agent.skill_system import SkillLoader
+            skill_text = SkillLoader().format_for_prompt()
+            if skill_text:
+                self.system_prompt += skill_text
+        except Exception:
+            pass
+
+        # v0.6.0 三层记忆注入
+        try:
+            from dev_agent.memory.memory_orch import MemoryOrchestrator
+            self._memory_orch = MemoryOrchestrator(enable_semantic=True)
+        except Exception:
+            self._memory_orch = None
+
+        # 记忆上下文（含跨会话长期记忆 + 语义记忆）注入到 system prompt
+        # 注意：此时还没有用户输入，只注入长期记忆（默认最重要的历史）
+        if self._memory_orch:
+            try:
+                mem_text = self._memory_orch.get_memory_context()
+                if mem_text:
+                    self.system_prompt += mem_text
+            except Exception:
+                pass
+
         self.context = context or ContextManager(
             workspace=self.workspace,
             system_prompt=self.system_prompt,
@@ -142,6 +173,16 @@ class AgentLoop:
         self.context.add_user_message(user_input)
         self._persist_message("user", user_input)
 
+        # v0.6.0 语义记忆注入：基于当前用户问题召回相关历史记忆
+        if self._memory_orch:
+            try:
+                sem_text = self._memory_orch.get_memory_context(current_query=user_input)
+                if sem_text:
+                    # 将语义记忆追加到 system prompt 中，重新构建上下文
+                    self.context.system_prompt = self.system_prompt + sem_text
+            except Exception:
+                pass
+
         # 重置反思状态（新任务开始）
         if self.reflection_engine:
             self.reflection_engine.reset()
@@ -179,14 +220,18 @@ class AgentLoop:
                 return
 
             llm_duration = (time.time() - llm_start) * 1000
+            # 该轮 LLM 调用的 token 用量（供 tool_start 事件携带 + 持久化）
+            round_usage = response.usage or {}
             # 可观测性：记录 LLM 调用
-            if self.observability and response.usage:
+            if self.observability and round_usage:
                 self.observability.record_llm_call(
                     session_id,
-                    tokens_in=response.usage.get("prompt_tokens", 0),
-                    tokens_out=response.usage.get("completion_tokens", 0),
+                    tokens_in=round_usage.get("prompt_tokens", 0),
+                    tokens_out=round_usage.get("completion_tokens", 0),
                     duration_ms=llm_duration,
                 )
+            # 持久化 token 用量到 SQLite（供仪表盘统计）
+            self._persist_token_usage(round_usage, session_id)
 
             # 4. 判断 LLM 是否要调用工具
             if response.has_tool_calls:
@@ -205,13 +250,28 @@ class AgentLoop:
                 self.context.add_assistant_message(response.content, tool_calls_openai)
                 self._persist_message("assistant", response.content, tool_calls_openai)
 
+                # 该轮 token 用量（同一轮多个工具调用共享）
+                round_tokens = {
+                    "prompt": round_usage.get("prompt_tokens", 0),
+                    "completion": round_usage.get("completion_tokens", 0),
+                    "total": round_usage.get("prompt_tokens", 0)
+                             + round_usage.get("completion_tokens", 0),
+                }
+
                 # 5. 逐个执行工具（带反思修正）
                 for call in response.tool_calls:
+                    # 技能调用识别：load_skill 代表 AI 决定使用某个技能
+                    skill_name = ""
+                    if call.name == "load_skill":
+                        skill_name = call.arguments.get("name", "")
+
                     yield LoopEvent(
                         type="tool_start",
                         tool_name=call.name,
                         tool_args=call.arguments,
                         content=self._format_tool_call(call.name, call.arguments),
+                        tokens=round_tokens,
+                        skill_name=skill_name,
                     )
 
                     result = await self._execute_tool_with_reflection(
@@ -249,15 +309,91 @@ class AgentLoop:
                         time.time() - request_start,
                     )
                     self.observability.record_tool_metrics(session_id, total_tool_calls)
+
+                # v0.6.0 对话结束，保存会话摘要到长期记忆
+                self._save_session_memory()
                 return
 
-        # 超过最大轮数
-        yield LoopEvent(
-            type="error",
-            content=f"已达到最大工具调用轮数 ({self.max_tool_rounds})，强制停止",
-        )
+        # 超过最大轮数 — 不直接报错，让 LLM 基于已有上下文生成一条总结性回复
+        summary = await self._generate_limit_summary(session_id, request_start)
+        if summary:
+            self.context.add_assistant_message(summary)
+            self._persist_message("assistant", summary)
+            yield LoopEvent(type="text", content=summary)
+        else:
+            # LLM 总结失败时降级为友好提示（非 error，避免前端显示为报错）
+            fallback = (
+                f"已达到最大工具调用轮数（{self.max_tool_rounds} 轮），"
+                "我已完成大部分工作但未能完全收尾。"
+                "请告诉我是否需要继续，或检查上方已完成的工具调用结果。"
+            )
+            yield LoopEvent(type="text", content=fallback)
+        yield LoopEvent(type="done")
+
         if self.observability:
-            self.observability.record_request(session_id, time.time() - request_start, error=True)
+            self.observability.record_request(session_id, time.time() - request_start)
+
+        # v0.6.0 对话结束，保存会话摘要到长期记忆
+        self._save_session_memory()
+
+    async def _generate_limit_summary(self, session_id: str, request_start: float) -> str:
+        """达到工具调用上限时，调用 LLM（不带工具）生成总结性回复
+
+        让 AI 基于已完成的工具调用结果，给用户一个阶段性总结，
+        而不是直接抛出"已达最大轮数"的报错。
+        """
+        try:
+            messages = self.context.build_messages()
+            # 追加一条提示，引导 LLM 收尾
+            messages.append({
+                "role": "user",
+                "content": (
+                    "（系统提示：已达到工具调用轮数上限，无法再调用工具。）"
+                    "请基于已完成的操作和已获取的信息，给出当前阶段的总结与下一步建议。"
+                ),
+            })
+            response = await self.llm.achat_with_tools(messages=messages, tools=[])
+            # 持久化这次总结调用的 token
+            if response.usage:
+                self._persist_token_usage(response.usage, session_id)
+            return response.content or ""
+        except Exception:
+            return ""
+
+    def _persist_token_usage(self, usage: dict, session_id: str):
+        """持久化 LLM 调用的 token 用量到 SQLite"""
+        if not usage:
+            return
+        try:
+            store = get_store()
+            store.record_token_usage(
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                conversation_id=self.conversation_id or "",
+                session_id=session_id,
+                model=getattr(self.llm, "model", ""),
+            )
+        except Exception:
+            pass
+
+    def _save_session_memory(self):
+        """保存当前对话到长期记忆（会话摘要 + 语义索引）"""
+        if not self._memory_orch:
+            return
+        try:
+            msgs = []
+            for m in self.context.history.messages:
+                msgs.append({
+                    "role": m.role,
+                    "content": m.content,
+                    "tool_name": m.name if hasattr(m, "name") else "",
+                })
+            self._memory_orch.on_conversation_end(
+                conversation_id=self.conversation_id,
+                messages=msgs,
+            )
+        except Exception:
+            pass
 
     async def _call_llm_with_retry(self, messages: list, tools: list, session_id: str):
         """带弹性重试的 LLM 调用
@@ -353,6 +489,11 @@ class AgentLoop:
         )
 
         if not reflection.needs_correction:
+            # 如果不需修正但有建议，将建议注入到最后一条助理消息后
+            if reflection.suggestion:
+                self.context.add_assistant_message(
+                    f"[反思建议] {reflection.suggestion}"
+                )
             return result
 
         # 需要修正 → 最多重试 2 次
@@ -396,6 +537,9 @@ class AgentLoop:
                 tool_name=tool_name,
                 tool_args=tool_args,
             )
+            # 用首条用户消息自动设置对话标题
+            if role == "user":
+                store.update_conversation_title(self.conversation_id, content)
         except Exception:
             pass
 
@@ -408,27 +552,9 @@ class AgentLoop:
 def create_agent(
     workspace: Optional[Path] = None,
     conversation_id: Optional[str] = None,
-    llm_overrides: Optional[dict] = None,
 ) -> AgentLoop:
     """创建 Agent 实例（工厂函数）
 
-    Args:
-        workspace: 工作目录
-        conversation_id: 对话 ID（传入已有 ID 可恢复上下文，但上下文本身在内存中）
-        llm_overrides: LLM 配置覆盖（api_key, base_url, model, temperature, max_tokens）
+    所有 LLM 配置从 .env 读取（通过 config.get_config()）。
     """
-    llm = None
-    if llm_overrides:
-        # 过滤掉空值：仅当 api_key 非空时才使用前端覆盖（避免空 key 覆盖 .env 配置）
-        api_key = (llm_overrides.get("api_key") or "").strip()
-        base_url = (llm_overrides.get("base_url") or "").strip()
-        model = (llm_overrides.get("model") or "").strip()
-        if api_key:
-            llm = LLMClient(
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-                temperature=llm_overrides.get("temperature"),
-                max_tokens=llm_overrides.get("max_tokens"),
-            )
-    return AgentLoop(workspace=workspace, conversation_id=conversation_id, llm=llm)
+    return AgentLoop(workspace=workspace, conversation_id=conversation_id)

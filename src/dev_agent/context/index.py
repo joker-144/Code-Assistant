@@ -8,7 +8,10 @@
   1. index_project(): 遍历项目源文件 → 按函数/类边界分块 → Embedding → 存入 SQLite
   2. search(): 将查询转为 Embedding → 在 SQLite 中做余弦相似度搜索 → 返回相关代码块
 
-Embedding: 智谱云端 Embedding-3（兼容 OpenAI API，默认 1024 维）
+Embedding: 本地 sentence-transformers（all-MiniLM-L6-v2，384 维）
+  - 模型约 80MB，首次使用时通过 huggingface-hub 官方源下载
+  - 可在 .env 中设置 HF_ENDPOINT=https://hf-mirror.com 切换国内镜像
+  - 纯本地推理，无网络调用开销，无 API Key 依赖
 """
 from __future__ import annotations
 
@@ -34,53 +37,61 @@ class CodeChunk:
     score: float = 0.0  # 搜索时的相似度得分
 
 
-# ── 智谱云端 Embedder ──
+# ── 本地 Embedder（sentence-transformers）──
 
-class ZhipuEmbedder:
-    """智谱云端 Embedder — 通过 OpenAI 兼容 API 调用 Zhipu Embedding-3
+class LocalEmbedder:
+    """本地 Embedder — 基于 sentence-transformers 的 all-MiniLM-L6-v2
 
-    API 地址: https://open.bigmodel.cn/api/paas/v4
-    模型: embedding-3（默认 1024 维，通过 dimensions 参数控制）
+    特点:
+      - 纯本地推理，无 API 调用，无网络开销
+      - 模型约 80MB，首次使用通过 huggingface-hub 官方源下载
+      - 输出 384 维向量，适合语义搜索和记忆检索
+      - 可在 .env 中设置 HF_ENDPOINT=https://hf-mirror.com 切换国内镜像
     """
 
+    _model = None  # 类级单例（避免重复加载模型）
+
     def __init__(self):
-        from dev_agent.config import get_config
-        from openai import OpenAI
-        config = get_config()
-        self._client = OpenAI(
-            api_key=config.llm_embedding_api_key,
-            base_url=config.llm_embedding_base_url,
-        )
-        self._model = config.llm_embedding_model
-        self._dimensions = config.llm_embedding_dimensions
+        # 优先从 .env 读取 HF_ENDPOINT，未设置时默认走国内镜像（避免连接超时）
+        if not os.environ.get("HF_ENDPOINT"):
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+
+    def _ensure_model(self):
+        """延迟加载模型（类级单例，所有实例共享）"""
+        if LocalEmbedder._model is None:
+            from sentence_transformers import SentenceTransformer
+            from dev_agent.config import get_config
+            config = get_config()
+            model_name = config.llm_embedding_model
+            LocalEmbedder._model = SentenceTransformer(model_name)
+        return LocalEmbedder._model
 
     def encode(self, texts: list[str]) -> np.ndarray:
-        """调用智谱 Embedding API 批量生成向量
+        """批量生成向量
 
-        注意：智谱 Embedding API 单次最多支持 32 条文本，超量需分批。
+        Args:
+            texts: 待编码的文本列表
+
+        Returns:
+            np.ndarray: shape=(len(texts), 384)，dtype=float32
         """
-        batch_size = 32  # 智谱 Embedding API 单次限制
-        all_embeddings: list[np.ndarray] = []
+        if not texts:
+            return np.array([], dtype=np.float32)
 
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            try:
-                response = self._client.embeddings.create(
-                    model=self._model,
-                    input=batch,
-                    dimensions=self._dimensions,
-                )
-            except Exception as e:
-                raise RuntimeError(f"智谱 Embedding API 调用失败: {e}") from e
-            batch_emb = np.array(
-                [d.embedding for d in response.data],
-                dtype=np.float32,
-            )
-            all_embeddings.append(batch_emb)
+        model = self._ensure_model()
+        # sentence-transformers 的 encode 直接返回 numpy 数组
+        embeddings = model.encode(
+            texts,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+            batch_size=64,
+        )
+        return np.array(embeddings, dtype=np.float32)
 
-        if len(all_embeddings) == 1:
-            return all_embeddings[0]
-        return np.vstack(all_embeddings)
+
+# 兼容别名 — 旧代码中引用 ZhipuEmbedder 的地方仍可正常 import
+ZhipuEmbedder = LocalEmbedder
 
 
 # ── 项目索引 ──
@@ -117,10 +128,10 @@ class ProjectIndex:
         self._embeddings_cache: list[dict] | None = None  # 向量缓存（索引后失效）
 
     @property
-    def embedder(self) -> ZhipuEmbedder:
-        """延迟创建智谱 Embedder"""
+    def embedder(self) -> LocalEmbedder:
+        """延迟创建本地 Embedder"""
         if self._embedder is None:
-            self._embedder = ZhipuEmbedder()
+            self._embedder = LocalEmbedder()
         return self._embedder
 
     # ── 索引 ──
@@ -160,7 +171,7 @@ class ProjectIndex:
             if not chunks:
                 continue
 
-            # 批量生成 Embedding（智谱云端 API）
+            # 批量生成 Embedding（本地 sentence-transformers）
             chunk_texts = [c.content for c in chunks]
             embeddings = self.embedder.encode(chunk_texts)
 
@@ -252,7 +263,7 @@ class ProjectIndex:
     def search(self, query: str, top_k: int = 5) -> list[CodeChunk]:
         """语义搜索代码库
 
-        余弦相似度计算与维度无关，自动适配智谱 Embedding-3 的向量维度。
+        余弦相似度计算与维度无关，自动适配本地 Embedder 的向量维度。
 
         Args:
             query: 自然语言查询

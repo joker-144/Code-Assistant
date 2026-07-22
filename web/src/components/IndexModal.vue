@@ -51,7 +51,7 @@ async function startIndex(force = false) {
             </svg>
           </div>
           <p class="info-text">
-            索引会将项目源代码分块并通过智谱云端 Embedding-3 生成向量，<br>
+            索引会将项目源代码分块并通过本地 Embedding 模型生成向量，<br>
             存入 SQLite 供 <code>search_code</code> 工具语义检索。
           </p>
           <div class="actions">
@@ -67,8 +67,8 @@ async function startIndex(force = false) {
         <!-- 索引中 -->
         <div v-else-if="state === 'indexing'" class="state-indexing">
           <div class="spinner"></div>
-          <p>正在调用智谱云端 API 生成 Embedding…</p>
-          <p class="hint">大项目可能需要几分钟，请耐心等待</p>
+          <p>正在通过本地 Embedding 模型生成向量…</p>
+          <p class="hint">首次使用需下载模型（约 80MB），大项目可能需要几分钟</p>
         </div>
 
         <!-- 成功 -->
@@ -116,8 +116,8 @@ async function startIndex(force = false) {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -175,7 +175,7 @@ async function startIndex(force = false) {
   margin-bottom: 16px;
 }
 
-.success-icon { color: var(--tool); }
+.success-icon { color: var(--success); }
 .error-icon { color: var(--error); }
 
 .info-text {

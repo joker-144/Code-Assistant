@@ -30,7 +30,7 @@ class FileOps:
         return resolved
 
     async def read_file(self, path: str, start_line: int = 0, end_line: int = 0) -> ToolResult:
-        """读取文件内容（支持行号范围）"""
+        """读取文件完整内容。默认读取整个文件，无需传 start_line/end_line。仅在文件超过 2000 行时允许分段读取。"""
         try:
             target = self._resolve(path)
             if not target.exists():

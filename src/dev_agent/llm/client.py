@@ -13,6 +13,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Optional
 
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 from dev_agent.config import get_config
@@ -64,10 +65,18 @@ class LLMClient:
             timeout=_timeout,
         )
         # 异步客户端（用于 AgentLoop，不阻塞事件循环）
+        # DeepSeek 官方推荐: connect=10s, read=60s, write=30s
+        # read=60s 确保非流式 tool_calling 响应有足够时间（复杂推理 + 多工具调用）
+        _stream_timeout = httpx.Timeout(
+            connect=10.0,   # 建立 TCP 连接
+            read=60.0,      # 响应读取超时（流式: 逐chunk; 非流式: 完整响应）
+            write=30.0,     # 发送请求体
+            pool=10.0,      # 从连接池获取连接
+        )
         self._async = AsyncOpenAI(
             api_key=_api_key,
             base_url=_base_url,
-            timeout=_timeout,
+            timeout=_stream_timeout,
         )
 
     # ── 基础文本对话 ──

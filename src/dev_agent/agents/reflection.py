@@ -99,7 +99,21 @@ class ReflectionEngine:
         if success and result and not self._is_low_quality(result):
             return ReflectionResult(needs_correction=False)
 
-        # 2. 检查重试次数
+        # 2. 参数错误类问题不重试（用相同参数重试没有意义）
+        #    例如：文件不存在、参数错误、权限问题 — 重试只会重复失败
+        non_retryable_markers = (
+            "文件不存在", "No such file", "参数错误", "参数", "Permission",
+            "权限不足", "未找到", "路径", "未知工具",
+        )
+        if error and any(m in error for m in non_retryable_markers):
+            return ReflectionResult(
+                needs_correction=False,
+                trigger=ReflectionTrigger.TOOL_FAILED,
+                analysis=f"工具 {tool_name} 失败（不重试）: {error}",
+                suggestion=f"参数/路径问题，Agent 需先校验后再调用: {error[:200]}",
+            )
+
+        # 3. 检查重试次数
         current_retries = self._retry_counts.get(tool_name, 0)
         if current_retries >= self.max_retries:
             return ReflectionResult(
@@ -111,7 +125,7 @@ class ReflectionEngine:
 
         self._retry_counts[tool_name] = current_retries + 1
 
-        # 3. 分析具体的失败类型
+        # 4. 分析具体的失败类型
         trigger, analysis, strategy, retry_prompt = self._analyze(
             tool_name, result, success, error
         )

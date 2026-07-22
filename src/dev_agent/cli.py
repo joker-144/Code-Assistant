@@ -231,17 +231,12 @@ def init():
     # ── 步骤 2: Embedding 配置 ──
     console.print()
     console.print("[bold]Embedding 配置[/bold]（用于代码语义搜索 `dev-agent index`）")
-    console.print("[dim]支持 OpenAI 兼容的 Embedding API（如智谱 Embedding-3）[/dim]")
+    console.print("[dim]使用本地 sentence-transformers（all-MiniLM-L6-v2，约 80MB）[/dim]")
+    console.print("[dim]首次使用时自动从 HuggingFace 下载（通过 hf-mirror 镜像加速）[/dim]")
 
-    embed_choice = Confirm.ask("是否配置 Embedding？（跳过则无法使用语义搜索）", default=True)
-    embed_api_key = ""
-    embed_base_url = "https://open.bigmodel.cn/api/paas/v4"
-    embed_model = "embedding-3"
-
-    if embed_choice:
-        console.print("  [dim]推荐: 智谱 Embedding-3 — https://open.bigmodel.cn/usercenter/apikeys[/dim]")
-        embed_api_key = Prompt.ask("  Embedding API Key", default=api_key, password=True)
-        embed_base_url = Prompt.ask("  Embedding Base URL", default=embed_base_url)
+    embed_model = "sentence-transformers/all-MiniLM-L6-v2"
+    embed_choice = Confirm.ask("是否使用默认 Embedding 模型？", default=True)
+    if not embed_choice:
         embed_model = Prompt.ask("  Embedding 模型", default=embed_model)
 
     # ── 步骤 3: 写入 .env ──
@@ -264,12 +259,9 @@ def init():
             f"LLM_CHAT_MAX_TOOL_ROUNDS=20",
             f"",
         ]
-        if embed_api_key:
+        if embed_model:
             lines += [
-                f"LLM_EMBEDDING_API_KEY={embed_api_key}",
-                f"LLM_EMBEDDING_BASE_URL={embed_base_url}",
                 f"LLM_EMBEDDING_MODEL={embed_model}",
-                f"LLM_EMBEDDING_DIMENSIONS=1024",
                 f"",
             ]
         lines += [
@@ -844,12 +836,12 @@ def index(
 
     from dev_agent.context.index import ProjectIndex
 
-    console.print("[bold cyan]开始索引项目代码库...[/bold cyan] [dim](智谱云端 Embedding-3)[/dim]")
+    console.print("[bold cyan]开始索引项目代码库...[/bold cyan] [dim](本地 sentence-transformers)[/dim]")
     console.print(f"[dim]工作区: {Path.cwd()}[/dim]")
 
     try:
         project_index = ProjectIndex(Path.cwd())
-        with console.status("[cyan]索引中（调用智谱云端 API）...[/cyan]"):
+        with console.status("[cyan]索引中（本地 Embedder 推理）...[/cyan]"):
             stats = project_index.index_project(force=force)
 
         console.print(Panel(
@@ -1062,10 +1054,10 @@ def _run_index():
     """触发项目索引"""
     from dev_agent.context.index import ProjectIndex
 
-    console.print("[bold cyan]开始索引项目代码库...[/bold cyan] [dim](智谱云端 Embedding-3)[/dim]")
+    console.print("[bold cyan]开始索引项目代码库...[/bold cyan] [dim](本地 sentence-transformers)[/dim]")
     try:
         project_index = ProjectIndex(Path.cwd())
-        with console.status("[cyan]索引中（调用智谱云端 API）...[/cyan]"):
+        with console.status("[cyan]索引中（本地 Embedder 推理）...[/cyan]"):
             stats = project_index.index_project()
 
         console.print(Panel(

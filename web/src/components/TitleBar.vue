@@ -26,8 +26,8 @@ onMounted(() => {
     <div class="titlebar-drag">
       <div class="titlebar-logo">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#58a6ff" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 12l10 5 10-5M2 17l10 5 10-5" stroke="#58a6ff" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M2 12l10 5 10-5M2 17l10 5 10-5" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
         </svg>
       </div>
       <span class="titlebar-text">DevAgent</span>
@@ -39,7 +39,7 @@ onMounted(() => {
       </button>
       <button class="ctrl-btn ctrl-max" @click="maximize" :title="isMaximized ? '还原' : '最大化'">
         <svg v-if="!isMaximized" width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
-        <svg v-else width="12" height="12" viewBox="0 0 12 12"><rect x="3" y="0.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><rect x="0.5" y="3" width="8" height="8" rx="1" fill="#1c2129" stroke="currentColor" stroke-width="1.2"/></svg>
+        <svg v-else width="12" height="12" viewBox="0 0 12 12"><rect x="3" y="0.5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><rect x="0.5" y="3" width="8" height="8" rx="1" fill="var(--border-strong)" stroke="currentColor" stroke-width="1.2"/></svg>
       </button>
       <button class="ctrl-btn ctrl-close" @click="close" title="关闭">
         <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>

@@ -23,7 +23,7 @@ class SearchTool:
 
     @property
     def index(self) -> ProjectIndex:
-        """延迟加载 ProjectIndex（首次使用时初始化智谱 Embedder）"""
+        """延迟加载 ProjectIndex（首次使用时初始化本地 Embedder）"""
         if self._index is None:
             self._index = ProjectIndex(self.workspace)
         return self._index
