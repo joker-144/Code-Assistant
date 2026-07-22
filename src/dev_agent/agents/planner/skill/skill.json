@@ -1,0 +1,33 @@
+{
+  "name": "planner",
+  "version": "1.2.16",
+  "description": "自我反思 + 自我批评 + 自我学习 + 自组织记忆。智能体评估自身工作、发现错误并持续改进，将经验教训分级存储（HOT/WARM/COLD），自动晋升衰减。捕获用户纠正和自省信号，形成可成长的记忆系统。",
+  "author": "ivangdavila",
+  "source": "SkillHub (ClawHub)",
+  "downloads": "327,000+",
+  "capabilities": [
+    "自我反思与纠错",
+    "经验教训自动记录",
+    "分层记忆管理（HOT/WARM/COLD）",
+    "用户偏好学习",
+    "模式自动晋升/衰减",
+    "需求分析与任务拆解",
+    "架构设计决策记录",
+    "工作流模式提取"
+  ],
+  "tools": [
+    "web_search",
+    "web_fetch",
+    "read_file",
+    "write_file",
+    "list_dir",
+    "search_code"
+  ],
+  "trigger_conditions": [
+    "用户提出复杂需求，需要先设计方案再执行",
+    "用户要求进行架构设计或技术选型",
+    "多步骤任务需要拆解为子任务计划",
+    "任务涉及跨多个文件或模块的变更",
+    "需要系统性的思考和分析后再行动"
+  ]
+}

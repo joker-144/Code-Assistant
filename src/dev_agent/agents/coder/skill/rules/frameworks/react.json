@@ -1,0 +1,19 @@
+{
+  "framework": "React",
+  "rules": {
+    "components": {
+      "函数组件": "使用函数组件 + React.FC",
+      "Props类型": "必须定义 Props 接口",
+      "默认导出": "组件使用默认导出"
+    },
+    "hooks": {
+      "useCallback": "传递给子组件的回调使用 useCallback",
+      "useMemo": "复杂计算使用 useMemo",
+      "useEffect清理": "effect 必须返回清理函数"
+    },
+    "state": {
+      "不可变更新": "使用展开运算符或 Immer 更新状态",
+      "useState粒度": "独立的 state 值分别使用 useState"
+    }
+  }
+}

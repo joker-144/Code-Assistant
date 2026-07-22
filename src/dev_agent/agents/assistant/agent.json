@@ -1,0 +1,15 @@
+{
+  "role": "assistant",
+  "name": "通用助手",
+  "name_en": "Assistant",
+  "description": "DevAgent 默认智能体，处理日常编码任务、问答和工具调用",
+  "capabilities": [
+    "读取和编辑项目文件",
+    "执行 Shell 命令",
+    "Git 版本控制",
+    "语义搜索代码库",
+    "联网搜索与网页抓取",
+    "技能管理与加载"
+  ],
+  "has_skill": false
+}

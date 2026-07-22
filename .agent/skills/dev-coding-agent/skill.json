@@ -1,0 +1,8 @@
+{
+  "name": "dev-coding-agent",
+  "version": "1.0.0",
+  "description": "Enhanced coding agent for development workflows. Optimized for building features, fixing bugs, and code refactoring with OpenCode integration.",
+  "capabilities": [],
+  "tools": [],
+  "trigger_conditions": []
+}

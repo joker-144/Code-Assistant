@@ -1,0 +1,18 @@
+{
+  "framework": "Vue",
+  "rules": {
+    "components": {
+      "Composition API": "使用 <script setup> 语法",
+      "Props定义": "使用 defineProps 并指定类型",
+      "Emit事件": "使用 defineEmits 声明事件"
+    },
+    "composables": {
+      "命名以use开头": "可组合函数必须 use 开头",
+      "副作用清理": "watch/watchEffect 返回清理函数"
+    },
+    "style": {
+      "scoped样式": "组件样式使用 scoped",
+      "ref模板引用": "模板引用统一使用 ref"
+    }
+  }
+}

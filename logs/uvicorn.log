@@ -1,0 +1,10 @@
+﻿python : INFO:     Started server process [4972]
+所在位置 行:1 字符: 5
++ & { python -m uvicorn dev_agent.api:app --host 0.0.0.0 --port 8000 2> ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO:     Started server process [4972]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

@@ -1,0 +1,8 @@
+{
+  "name": "agent-memory",
+  "version": "1.0.0",
+  "description": "",
+  "capabilities": [],
+  "tools": [],
+  "trigger_conditions": []
+}
