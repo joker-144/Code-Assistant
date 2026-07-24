@@ -187,6 +187,19 @@ function killBackend() {
       clearTimeout(forceKillTimeout);
     });
   }
+
+  // Windows 上 SIGTERM/SIGKILL 不可靠，用 taskkill /F /T 强制杀死整个进程树
+  // 包括 dev-agent.exe 及其可能派生的子进程（如 uvicorn worker）
+  try {
+    const { execSync } = require('child_process');
+    execSync('taskkill /F /IM dev-agent.exe /T', { stdio: 'ignore', windowsHide: true });
+    console.log('[DevAgent] All dev-agent.exe processes killed via taskkill');
+  } catch (e) {
+    // taskkill 退出码 128 = 没有找到进程，属于正常情况
+    if (!String(e.message).includes('128')) {
+      console.log('[DevAgent] taskkill completed (no remaining processes)');
+    }
+  }
 }
 
 function createWindow() {
