@@ -867,7 +867,7 @@ async def save_user_settings(payload: UserSettingsPayload):
 
 @app.get("/api/version/check")
 async def version_check():
-    """检查最新版本（优先 GitHub Releases，回退 PyPI）"""
+    """检查最新版本（多源回退：GitHub → 镜像代理 → PyPI）"""
     import httpx
 
     current = __version__
@@ -881,31 +881,39 @@ async def version_check():
         "source": "none",
     }
 
-    # 优先尝试 GitHub Releases
-    try:
-        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            gh_resp = client.get(
-                "https://api.github.com/repos/joker-144/Code-Assistant/releases/latest",
-                headers={
-                    "User-Agent": "DevAgent-Updater",
-                    "Accept": "application/vnd.github.v3+json",
-                },
-            )
-            gh_resp.raise_for_status()
-            gh_data = gh_resp.json()
-            tag = gh_data.get("tag_name", "").lstrip("v")
-            changelog_body = gh_data.get("body", "") or ""
-            html_url = gh_data.get("html_url", "")
+    # GitHub API 源列表（直连 + 镜像代理，按优先级排列）
+    gh_api_sources = [
+        "https://api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+        "https://gh-proxy.com/api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+        "https://ghproxy.net/api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+    ]
+
+    gh_headers = {
+        "User-Agent": "DevAgent-Updater",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    # 依次尝试每个源
+    for api_url in gh_api_sources:
+        try:
+            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+                resp = client.get(api_url, headers=gh_headers)
+                resp.raise_for_status()
+                data = resp.json()
+
+            tag = data.get("tag_name", "").lstrip("v")
+            changelog_body = data.get("body", "") or ""
+            html_url = data.get("html_url", "")
 
             # 查找 Windows 安装包资源
             download_url = ""
-            for asset in gh_data.get("assets", []):
+            for asset in data.get("assets", []):
                 name = asset.get("name", "")
                 if name.endswith(".exe") and ("Setup" in name or "setup" in name or "install" in name or "Installer" in name):
                     download_url = asset.get("browser_download_url", "")
                     break
             if not download_url:
-                for asset in gh_data.get("assets", []):
+                for asset in data.get("assets", []):
                     if asset.get("name", "").endswith(".exe"):
                         download_url = asset.get("browser_download_url", "")
                         break
@@ -917,153 +925,208 @@ async def version_check():
                 result["download_url"] = download_url
                 result["has_update"] = _compare_versions(tag, current) > 0
                 result["source"] = "github"
-    except Exception:
-        # GitHub 失败，回退 PyPI
-        try:
-            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-                py_resp = client.get(
-                    "https://pypi.org/pypi/dev-agent/json",
-                    headers={"User-Agent": "DevAgent-Updater"},
-                )
-                py_resp.raise_for_status()
-                data = py_resp.json()
-                latest = data.get("info", {}).get("version", current)
-                release_url = data.get("info", {}).get("release_url", "")
+                return result
+        except Exception:
+            continue
 
-                result["latest"] = latest
-                result["release_url"] = release_url
-                result["has_update"] = _compare_versions(latest, current) > 0
-                result["source"] = "pypi"
+    # 所有 GitHub 源均失败，回退 PyPI
+    try:
+        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+            py_resp = client.get(
+                "https://pypi.org/pypi/dev-agent/json",
+                headers={"User-Agent": "DevAgent-Updater"},
+            )
+            py_resp.raise_for_status()
+            data = py_resp.json()
+            latest = data.get("info", {}).get("version", current)
+            release_url = data.get("info", {}).get("release_url", "")
 
-                if result["has_update"]:
-                    result["changelog"] = f"PyPI 新版本 {latest} 已发布，请使用 pip install --upgrade dev-agent 更新。"
-        except Exception as e:
-            result["error"] = f"检查更新失败: {str(e)}"
+            result["latest"] = latest
+            result["release_url"] = release_url
+            result["has_update"] = _compare_versions(latest, current) > 0
+            result["source"] = "pypi"
+
+            if result["has_update"]:
+                result["changelog"] = f"PyPI 新版本 {latest} 已发布，请使用 pip install --upgrade dev-agent 更新。"
+    except Exception as e:
+        result["error"] = f"检查更新失败: {str(e)}"
 
     return result
 
 
 @app.post("/api/version/download")
 async def version_download():
-    """下载最新版本的安装包到下载目录，返回本地文件路径（SSE 流式进度）"""
+    """下载最新版本的安装包（多源回退 + 断点续传 + SSE 进度流）
+
+    下载源优先级：GitHub 直连 → 镜像代理 → 逐源尝试
+    所有镜像代理对同一个 download_url 做前缀拼接。
+    """
     import asyncio
     import httpx
+    import time
+
+    # GitHub 下载镜像代理前缀列表（对 release asset 下载 URL 做前缀拼接）
+    MIRROR_PREFIXES = [
+        "",  # 直连
+        "https://gh-proxy.com/",
+        "https://ghproxy.net/",
+        "https://github.moeyy.xyz/",
+    ]
 
     async def download_stream():
-        import time
         release_url = ""
+        gh_data = None
 
-        try:
-            # 获取最新 Release 信息
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                gh_resp = await client.get(
-                    "https://api.github.com/repos/joker-144/Code-Assistant/releases/latest",
-                    headers={
-                        "User-Agent": "DevAgent-Updater",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                )
-                gh_resp.raise_for_status()
-                gh_data = gh_resp.json()
-                tag = gh_data.get("tag_name", "").lstrip("v")
-                release_url = gh_data.get("html_url", "")
+        # Step 1: 获取 Release 信息（多源尝试）
+        gh_api_sources = [
+            "https://api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+            "https://gh-proxy.com/api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+            "https://ghproxy.net/api.github.com/repos/joker-144/Code-Assistant/releases/latest",
+        ]
+        gh_headers = {
+            "User-Agent": "DevAgent-Updater",
+            "Accept": "application/vnd.github.v3+json",
+        }
 
-            download_url = ""
-            file_name = ""
-            for asset in gh_data.get("assets", []):
-                name = asset.get("name", "")
-                if name.endswith(".exe"):
-                    download_url = asset.get("browser_download_url", "")
-                    file_name = name
+        for api_url in gh_api_sources:
+            try:
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    resp = await client.get(api_url, headers=gh_headers)
+                    resp.raise_for_status()
+                    gh_data = resp.json()
                     break
+            except Exception:
+                continue
 
-            if not download_url:
-                msg = "未找到可用安装包"
-                if release_url:
-                    msg += f"，请手动下载: {release_url}"
-                yield f"data: {json.dumps({'status': 'error', 'message': msg, 'release_url': release_url}, ensure_ascii=False)}\n\n"
-                return
+        if gh_data is None:
+            yield f"data: {json.dumps({'status': 'error', 'message': '无法连接到更新服务器，请检查网络或稍后重试'}, ensure_ascii=False)}\n\n"
+            return
 
-            download_dir = Path.home() / "Downloads"
-            download_dir.mkdir(exist_ok=True)
-            dest = download_dir / file_name
+        tag = gh_data.get("tag_name", "").lstrip("v")
+        release_url = gh_data.get("html_url", "")
 
-            total_size = 0
-            # 先获取文件大小并检查已下载多少
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                head_resp = await client.head(download_url, headers={"User-Agent": "DevAgent-Updater"})
-                if head_resp.status_code == 200:
-                    total_size = int(head_resp.headers.get("Content-Length", 0))
+        download_url = ""
+        file_name = ""
+        for asset in gh_data.get("assets", []):
+            name = asset.get("name", "")
+            if name.endswith(".exe"):
+                download_url = asset.get("browser_download_url", "")
+                file_name = name
+                break
 
-            existing_size = dest.stat().st_size if dest.exists() else 0
-            if existing_size > 0 and total_size > 0 and existing_size >= total_size:
-                # 文件已完整下载
-                yield f"data: {json.dumps({'status': 'done', 'message': '文件已存在，跳过下载', 'file_path': str(dest)}, ensure_ascii=False)}\n\n"
-                return
-            elif existing_size > 0 and total_size > 0:
-                yield f"data: {json.dumps({'status': 'info', 'message': f'发现未完成的下载，从 {existing_size/1024/1024:.1f}MB 处续传…'}, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps({'status': 'info', 'message': f'找到版本 {tag}，开始下载 {file_name}…'}, ensure_ascii=False)}\n\n"
-
-            # 进度报告间隔控制
-            last_report = 0.0
-
-            download_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(600.0, connect=15.0),
-                follow_redirects=True,
-                headers={"User-Agent": "DevAgent-Updater"},
-            )
-
-            max_retries = 3
-            total_downloaded = existing_size
-
-            for attempt in range(max_retries + 1):
-                try:
-                    headers = {"User-Agent": "DevAgent-Updater"}
-                    resume_from = dest.stat().st_size if dest.exists() else 0
-                    if resume_from > 0:
-                        headers["Range"] = f"bytes={resume_from}-"
-
-                    async with download_client.stream("GET", download_url, headers=headers) as resp:
-                        if resp.status_code not in (200, 206):
-                            resp.raise_for_status()
-
-                        # 206 = 断点续传
-                        if resp.status_code == 206:
-                            cr = resp.headers.get("Content-Range", "")
-                            if cr:
-                                total_size = int(cr.split("/")[-1])
-
-                        open_mode = "ab" if (resp.status_code == 206 and resume_from > 0) else "wb"
-                        with open(dest, open_mode) as f:
-                            async for chunk in resp.aiter_bytes(chunk_size=65536):
-                                f.write(chunk)
-                                total_downloaded += len(chunk)
-                                now = time.time()
-                                if total_size and (now - last_report > 0.5 or total_downloaded >= total_size):
-                                    last_report = now
-                                    pct = int(total_downloaded * 100 / total_size)
-                                    yield f"data: {json.dumps({'status': 'progress', 'message': f'下载中 {total_downloaded//1024//1024}MB / {total_size//1024//1024}MB ({pct}%)', 'percent': pct}, ensure_ascii=False)}\n\n"
-
-                    # 下载成功，跳出重试循环
-                    break
-
-                except Exception:
-                    if attempt < max_retries:
-                        delay = 2 ** attempt
-                        yield f"data: {json.dumps({'status': 'info', 'message': f'连接中断，{delay}秒后重试 (第{attempt+1}次)…'}, ensure_ascii=False)}\n\n"
-                        await asyncio.sleep(delay)
-                    else:
-                        raise
-
-            await download_client.aclose()
-            yield f"data: {json.dumps({'status': 'done', 'message': '下载完成', 'file_path': str(dest)}, ensure_ascii=False)}\n\n"
-
-        except Exception as e:
-            err_msg = f"下载失败: {str(e)}"
+        if not download_url:
+            msg = "未找到可用安装包"
             if release_url:
-                err_msg += f" | 请手动下载: {release_url}"
-            yield f"data: {json.dumps({'status': 'error', 'message': err_msg, 'release_url': release_url}, ensure_ascii=False)}\n\n"
+                msg += f"，请手动下载: {release_url}"
+            yield f"data: {json.dumps({'status': 'error', 'message': msg, 'release_url': release_url}, ensure_ascii=False)}\n\n"
+            return
+
+        download_dir = Path.home() / "Downloads"
+        download_dir.mkdir(exist_ok=True)
+        dest = download_dir / file_name
+
+        # 构建候选下载 URL 列表（直连 + 各镜像代理）
+        candidate_urls = []
+        for prefix in MIRROR_PREFIXES:
+            candidate_urls.append(f"{prefix}{download_url}")
+
+        # 先获取文件大小
+        total_size = 0
+        for try_url in candidate_urls:
+            try:
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    head_resp = await client.head(try_url, headers={"User-Agent": "DevAgent-Updater"})
+                    if head_resp.status_code == 200:
+                        total_size = int(head_resp.headers.get("Content-Length", 0))
+                        if total_size > 0:
+                            break
+            except Exception:
+                continue
+
+        existing_size = dest.stat().st_size if dest.exists() else 0
+        if existing_size > 0 and total_size > 0 and existing_size >= total_size:
+            yield f"data: {json.dumps({'status': 'done', 'message': '文件已存在，跳过下载', 'file_path': str(dest), 'percent': 100}, ensure_ascii=False)}\n\n"
+            return
+
+        if existing_size > 0 and total_size > 0:
+            pct = int(existing_size * 100 / total_size)
+            yield f"data: {json.dumps({'status': 'progress', 'message': f'续传下载中', 'percent': pct, 'downloaded_mb': round(existing_size/1048576, 1), 'total_mb': round(total_size/1048576, 1), 'speed_mb_s': 0}, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {json.dumps({'status': 'info', 'message': f'找到版本 {tag}，开始下载 {file_name}…', 'total_mb': round(total_size/1048576, 1) if total_size else 0}, ensure_ascii=False)}\n\n"
+
+        # 逐源尝试下载
+        download_succeeded = False
+        last_report = 0.0
+        last_downloaded = existing_size
+        speed_start_time = 0.0
+
+        for source_idx, try_url in enumerate(candidate_urls):
+            if download_succeeded:
+                break
+
+            source_name = "直连" if source_idx == 0 else f"镜像{source_idx}"
+
+            try:
+                headers = {"User-Agent": "DevAgent-Updater"}
+                resume_from = dest.stat().st_size if dest.exists() else 0
+                if resume_from > 0:
+                    headers["Range"] = f"bytes={resume_from}-"
+
+                download_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(600.0, connect=15.0),
+                    follow_redirects=True,
+                    headers={"User-Agent": "DevAgent-Updater"},
+                )
+
+                total_downloaded = resume_from
+                speed_start_time = time.time()
+                last_downloaded = total_downloaded
+
+                async with download_client.stream("GET", try_url, headers=headers) as resp:
+                    if resp.status_code not in (200, 206):
+                        resp.raise_for_status()
+
+                    if resp.status_code == 206:
+                        cr = resp.headers.get("Content-Range", "")
+                        if cr:
+                            total_size = int(cr.split("/")[-1])
+
+                    open_mode = "ab" if (resp.status_code == 206 and resume_from > 0) else "wb"
+                    if open_mode == "wb":
+                        total_downloaded = 0
+                        last_downloaded = 0
+
+                    with open(dest, open_mode) as f:
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            f.write(chunk)
+                            total_downloaded += len(chunk)
+                            now = time.time()
+                            if total_size and (now - last_report > 0.3 or total_downloaded >= total_size):
+                                last_report = now
+                                pct = int(total_downloaded * 100 / total_size)
+                                # 计算速度
+                                elapsed = now - speed_start_time
+                                speed = (total_downloaded - last_downloaded) / elapsed / 1048576 if elapsed > 0 else 0
+                                yield f"data: {json.dumps({'status': 'progress', 'message': '下载中', 'percent': pct, 'downloaded_mb': round(total_downloaded/1048576, 1), 'total_mb': round(total_size/1048576, 1), 'speed_mb_s': round(speed, 2)}, ensure_ascii=False)}\n\n"
+                                last_downloaded = total_downloaded
+                                speed_start_time = now
+
+                await download_client.aclose()
+                download_succeeded = True
+
+            except Exception as e:
+                if source_idx < len(candidate_urls) - 1:
+                    yield f"data: {json.dumps({'status': 'info', 'message': f'{source_name}下载失败，切换到下一个源…'}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(1)
+                else:
+                    err_msg = f"所有下载源均失败: {str(e)}"
+                    if release_url:
+                        err_msg += f" | 请手动下载: {release_url}"
+                    yield f"data: {json.dumps({'status': 'error', 'message': err_msg, 'release_url': release_url}, ensure_ascii=False)}\n\n"
+                    return
+
+        if download_succeeded:
+            yield f"data: {json.dumps({'status': 'done', 'message': '下载完成', 'file_path': str(dest), 'percent': 100, 'downloaded_mb': round(total_size/1048576, 1) if total_size else 0, 'total_mb': round(total_size/1048576, 1) if total_size else 0}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         download_stream(),
@@ -1074,10 +1137,11 @@ async def version_download():
 
 @app.post("/api/version/install")
 async def version_install(request: Request):
-    """先卸载旧版本（如已安装），再安装新版本。返回 JSON 状态。"""
-    import os
+    """启动安装程序（UAC 提权 + 独立进程），安装完成后由安装程序处理重启。
+
+    Inno Setup 安装包本身支持升级覆盖安装，不需要先卸载旧版本。
+    """
     import subprocess
-    import winreg
 
     body = await request.json()
     file_path = body.get("file_path", "")
@@ -1086,86 +1150,32 @@ async def version_install(request: Request):
         return {"success": False, "error": f"安装包不存在: {file_path}"}
 
     try:
-        uninstalled = False
-        uninstall_result = ""
+        # 使用 PowerShell Start-Process -Verb RunAs 触发 UAC 提权
+        # 这样安装程序会以管理员权限运行，能写入 Program Files
+        # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS 确保安装程序独立于 API 进程
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
 
-        # 查找已安装的 DevAgent（Inno Setup 注册表项）
-        base_keys = [
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-        ]
-
-        uninstaller_path = ""
-        for hkey_root, subkey_path in base_keys:
-            try:
-                with winreg.OpenKey(hkey_root, subkey_path) as uninstall_key:
-                    i = 0
-                    while True:
-                        try:
-                            subkey_name = winreg.EnumKey(uninstall_key, i)
-                            with winreg.OpenKey(uninstall_key, subkey_name) as app_key:
-                                try:
-                                    display_name = winreg.QueryValueEx(app_key, "DisplayName")[0]
-                                    if "DevAgent" in display_name or "dev-agent" in display_name.lower():
-                                        try:
-                                            uninstaller_path = winreg.QueryValueEx(app_key, "UninstallString")[0]
-                                            # UninstallString 通常带引号: "C:\...\unins000.exe"
-                                            uninstaller_path = uninstaller_path.strip('"')
-                                        except FileNotFoundError:
-                                            pass
-                                        break
-                                except FileNotFoundError:
-                                    pass
-                            i += 1
-                        except OSError:
-                            break
-                if uninstaller_path:
-                    break
-            except OSError:
-                continue
-
-        # 如果注册表没找到，尝试常见路径
-        if not uninstaller_path:
-            common_paths = [
-                Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "DevAgent" / "unins000.exe",
-                Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "DevAgent" / "unins000.exe",
-                Path(os.environ.get("LOCALAPPDATA", "")) / "DevAgent" / "unins000.exe",
-            ]
-            for p in common_paths:
-                if p.exists():
-                    uninstaller_path = str(p)
-                    break
-
-        # 执行卸载
-        if uninstaller_path and Path(uninstaller_path).exists():
-            proc = subprocess.run(
-                [uninstaller_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
-                capture_output=True, text=True, timeout=120,
-            )
-            uninstalled = True
-            uninstall_result = f"旧版本已卸载 (返回码 {proc.returncode})"
-
-        # 安装新版本
         proc = subprocess.Popen(
-            [file_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                f"Start-Process -FilePath '{file_path}' -Verb RunAs",
+            ],
+            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
         )
-
-        msg_parts = []
-        if uninstalled:
-            msg_parts.append(uninstall_result)
-        msg_parts.append("安装程序已启动，应用即将关闭以完成更新。")
 
         return {
             "success": True,
-            "message": " ".join(msg_parts),
+            "message": "安装程序已启动（需要管理员权限确认），请在 UAC 弹窗中点击[是]以继续安装。",
             "pid": proc.pid,
-            "uninstalled": uninstalled,
         }
     except Exception as e:
-        return {"success": False, "error": f"安装失败: {str(e)}"}
+        return {"success": False, "error": f"安装启动失败: {str(e)}"}
 
 
 def _compare_versions(v1: str, v2: str) -> int:

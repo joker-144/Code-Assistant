@@ -23,6 +23,10 @@ WizardStyle=modern
 SetupIconFile=log.ico
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
+; 不检测/不关闭运行中的应用（更新时代码会先关闭应用）
+CloseApplications=no
+; 安装完成后不尝试重启被关闭的应用
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -50,8 +54,26 @@ Name: "{group}\{#AppName}"; Filename: "{app}\DevAgent.exe"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
-; Optionally launch after install
+; GUI 安装后勾选启动
 Filename: "{app}\DevAgent.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+; 静默安装后自动启动（不跳过静默模式）
+Filename: "{app}\DevAgent.exe"; Flags: nowait; Check: IsSilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\DevAgent"
+
+[Code]
+function IsSilent(): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  for i := 1 to ParamCount do
+  begin
+    if (ParamStr(i) = '/SILENT') or (ParamStr(i) = '/VERYSILENT') then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;

@@ -324,22 +324,105 @@ ipcMain.handle('update-download', async () => {
 
 ipcMain.handle('update-install', async (_event, filePath) => {
   try {
-    const { exec } = require('child_process');
-    // 以管理员权限静默安装
-    exec(
-      `"${filePath}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`,
-      (error) => {
-        if (error) {
-          console.error('[DevAgent] Install error:', error);
+    const { spawn } = require('child_process');
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+
+    // 验证文件存在
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `安装包不存在: ${filePath}` };
+    }
+
+    console.log(`[DevAgent] Starting installer: ${filePath}`);
+
+    // 1. 先杀死后端进程，释放文件锁（安装程序需要替换 dev-agent.exe）
+    killBackend();
+
+    // 2. 等待后端进程完全退出
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // 3. 写临时 PowerShell 脚本，负责：等待 Electron 退出 → 静默安装 → 启动新版本
+    const escapedPath = filePath.replace(/'/g, "''");
+    const ps1Script = `# DevAgent 更新脚本 — 由 Electron 自动生成
+$ErrorActionPreference = 'Stop'
+
+# 等待 Electron 完全退出
+Start-Sleep -Seconds 3
+
+Write-Host "[DevAgent Updater] Starting silent installer: ${escapedPath}"
+
+# 以管理员权限静默安装
+$proc = Start-Process -FilePath '${escapedPath}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Verb RunAs -PassThru -Wait
+Write-Host "[DevAgent Updater] Installer exited with code: $($proc.ExitCode)"
+
+# 安装完成后启动新版本
+$appId = '{B8F3A1D2-6E5C-4A9B-8D7F-1C3E5A7B9D0F}'
+$regPaths = @(
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\$appId",
+    "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\$appId"
+)
+$launched = $false
+foreach ($regPath in $regPaths) {
+    try {
+        $p = Get-ItemProperty $regPath -ErrorAction SilentlyContinue
+        if ($p -and $p.DisplayIcon) {
+            $exe = $p.DisplayIcon -replace '"','' -replace ',-\\d+$',''
+            if (Test-Path $exe) {
+                Write-Host "[DevAgent Updater] Launching: $exe"
+                Start-Process $exe
+                $launched = $true
+                break
+            }
         }
-      }
-    );
-    // 给安装程序一点启动时间，然后退出应用
+    } catch { }
+}
+
+# 注册表没找到，尝试常见路径
+if (-not $launched) {
+    $candidates = @(
+        'C:\\Program Files\\DevAgent\\DevAgent.exe',
+        'C:\\Program Files (x86)\\DevAgent\\DevAgent.exe'
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) {
+            Write-Host "[DevAgent Updater] Launching: $c"
+            Start-Process $c
+            break
+        }
+    }
+}
+
+# 自清理
+Remove-Item $MyInvocation.MyCommand.Path -Force
+`;
+
+    const ps1Path = path.join(os.tmpdir(), 'devagent_updater.ps1');
+    fs.writeFileSync(ps1Path, ps1Script, 'utf-8');
+
+    // 4. 启动 PowerShell 脚本（独立进程，不随 Electron 退出而终止）
+    const child = spawn('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', ps1Path,
+    ], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+
+    child.unref();
+
+    console.log('[DevAgent] Updater script launched, quitting app...');
+
+    // 5. 退出 Electron（脚本会等待 3 秒后才启动安装程序，确保 Electron 已退出）
     setTimeout(() => {
       app.quit();
-    }, 2000);
+    }, 500);
+
     return { success: true };
   } catch (e) {
+    console.error('[DevAgent] Install error:', e);
     return { success: false, error: e.message };
   }
 });

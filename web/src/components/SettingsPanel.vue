@@ -200,8 +200,19 @@ const releaseUrl = ref('')
 const downloadUrl = ref('')
 const checkingUpdate = ref(false)
 const updatingVersion = ref(false)
-const updateLog = ref([])
 const updateDone = ref(false)
+
+// 下载进度状态（结构化）
+const downloadProgress = ref({
+  active: false,       // 是否正在下载
+  percent: 0,          // 百分比 0-100
+  downloadedMb: 0,     // 已下载 MB
+  totalMb: 0,          // 总大小 MB
+  speedMbS: 0,         // 速度 MB/s
+  statusText: '',      // 当前状态文字
+  error: '',           // 错误信息
+  sourceSwitchCount: 0, // 镜像切换次数
+})
 
 // 是否运行在 Electron 中
 const isElectron = computed(() => !!window.electronAPI)
@@ -279,6 +290,7 @@ async function checkVersion() {
   hasUpdate.value = false
   changelog.value = ''
   updateDone.value = false
+  downloadProgress.value = { active: false, percent: 0, downloadedMb: 0, totalMb: 0, speedMbS: 0, statusText: '', error: '', sourceSwitchCount: 0 }
 
   try {
     let data
@@ -296,75 +308,139 @@ async function checkVersion() {
     releaseUrl.value = data.release_url || ''
     downloadUrl.value = data.download_url || ''
   } catch (e) {
-    updateLog.value = [{ text: `检查更新失败: ${e.message}`, url: '' }]
+    downloadProgress.value.error = `检查更新失败: ${e.message}`
   } finally {
     checkingUpdate.value = false
   }
 }
 
+function _handleProgressMsg(msg) {
+  if (msg.status === 'progress') {
+    downloadProgress.value.active = true
+    downloadProgress.value.percent = msg.percent || 0
+    downloadProgress.value.downloadedMb = msg.downloaded_mb || 0
+    downloadProgress.value.totalMb = msg.total_mb || 0
+    downloadProgress.value.speedMbS = msg.speed_mb_s || 0
+    downloadProgress.value.statusText = '下载中'
+    downloadProgress.value.error = ''
+  } else if (msg.status === 'info') {
+    if (msg.message && msg.message.includes('切换到下一个源')) {
+      downloadProgress.value.sourceSwitchCount++
+      downloadProgress.value.statusText = `切换下载源中…`
+    } else if (msg.message && msg.message.includes('续传')) {
+      downloadProgress.value.statusText = '断点续传中'
+    } else if (msg.total_mb) {
+      downloadProgress.value.totalMb = msg.total_mb
+      downloadProgress.value.statusText = msg.message || '准备下载…'
+    } else {
+      downloadProgress.value.statusText = msg.message || ''
+    }
+  } else if (msg.status === 'done') {
+    downloadProgress.value.active = false
+    downloadProgress.value.percent = 100
+    downloadProgress.value.statusText = msg.message || '下载完成'
+    downloadProgress.value.error = ''
+    if (msg.file_path) {
+      downloadProgress.value.filePath = msg.file_path
+    }
+  } else if (msg.status === 'error') {
+    downloadProgress.value.active = false
+    downloadProgress.value.error = msg.message || '下载失败'
+    if (msg.release_url) {
+      releaseUrl.value = msg.release_url
+    }
+  }
+}
+
 async function startUpdate() {
   updatingVersion.value = true
-  updateLog.value = []
   updateDone.value = false
+  downloadProgress.value = { active: true, percent: 0, downloadedMb: 0, totalMb: 0, speedMbS: 0, statusText: '准备下载…', error: '', sourceSwitchCount: 0 }
 
   try {
     // Electron 模式：下载 → 安装 → 退出
     if (window.electronAPI) {
-      // 监听下载进度
       window.electronAPI.onUpdateProgress((msg) => {
-        updateLog.value.push({ text: msg.message || JSON.stringify(msg), url: '' })
+        _handleProgressMsg(msg)
       })
 
       const dlResult = await window.electronAPI.updateDownload()
       if (!dlResult.success) {
-        updateLog.value.push({ text: `下载失败: ${dlResult.error}`, url: '' })
+        downloadProgress.value.active = false
+        downloadProgress.value.error = dlResult.error || '下载失败'
         updatingVersion.value = false
         return
       }
 
-      updateLog.value.push({ text: '安装包已下载，正在启动安装程序…', url: '' })
+      downloadProgress.value.statusText = '安装包已下载，正在启动安装程序…'
+      downloadProgress.value.percent = 100
 
       const installResult = await window.electronAPI.updateInstall(dlResult.file_path)
       if (!installResult.success) {
-        updateLog.value.push({ text: `安装启动失败: ${installResult.error}`, url: '' })
+        downloadProgress.value.active = false
+        downloadProgress.value.error = `安装启动失败: ${installResult.error}`
       }
       // 安装程序启动后，应用会自动退出
     } else {
-      // 浏览器模式：SSE 下载 → 手动安装
+      // 浏览器模式：SSE 流式下载
       const resp = await fetch('/api/version/download', { method: 'POST' })
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
-
+      let buffer = ''
       let downloadedFile = ''
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const text = decoder.decode(value, { stream: true })
-        for (const line of text.split('\n')) {
-          const trimmed = line.trim()
-          if (trimmed.startsWith('data: ')) {
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const trimmed = line.slice(6).trim()
+            if (!trimmed) continue
             try {
-              const msg = JSON.parse(trimmed.slice(6))
-              updateLog.value.push({ text: msg.message || JSON.stringify(msg), url: msg.release_url || '' })
+              const msg = JSON.parse(trimmed)
+              _handleProgressMsg(msg)
               if (msg.status === 'done') {
                 downloadedFile = msg.file_path || ''
                 updateDone.value = true
               }
-            } catch {
-              updateLog.value.push({ text: trimmed.slice(6), url: '' })
-            }
+            } catch { /* ignore */ }
           }
         }
       }
 
       if (downloadedFile) {
-        // 浏览器模式提示用户手动运行安装包
-        updateLog.value.push({ text: `安装包已保存到: ${downloadedFile}`, url: '' })
-        updateLog.value.push({ text: '请在文件管理器中双击运行安装包完成更新。', url: '' })
+        // 浏览器模式：调用后端 API 启动安装程序（UAC 提权 + 独立进程）
+        downloadProgress.value.statusText = '正在启动安装程序…'
+        downloadProgress.value.active = true
+        try {
+          const installResp = await fetch('/api/version/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_path: downloadedFile }),
+          })
+          const installData = await installResp.json()
+          if (installData.success) {
+            downloadProgress.value.active = false
+            downloadProgress.value.statusText = '安装程序已启动'
+            downloadProgress.value.filePath = downloadedFile
+            updateDone.value = true
+          } else {
+            downloadProgress.value.active = false
+            downloadProgress.value.error = `安装启动失败: ${installData.error || '未知错误'}`
+          }
+        } catch (installErr) {
+          downloadProgress.value.active = false
+          downloadProgress.value.error = `安装启动失败: ${installErr.message}。安装包已保存到: ${downloadedFile}`
+          downloadProgress.value.filePath = downloadedFile
+        }
       }
     }
   } catch (e) {
-    updateLog.value.push({ text: `更新异常: ${e.message}`, url: '' })
+    downloadProgress.value.active = false
+    downloadProgress.value.error = `更新异常: ${e.message}`
   } finally {
     updatingVersion.value = false
   }
@@ -568,15 +644,70 @@ async function startUpdate() {
         <pre class="changelog-content">{{ changelog }}</pre>
       </div>
 
-      <div v-if="updateLog.length" class="update-log-box">
-        <div v-for="(line, i) in updateLog" :key="i" class="log-line">
-          {{ line.text }}
-          <a v-if="line.url" :href="line.url" target="_blank" class="log-link">手动下载</a>
-        </div>
-      </div>
+      <!-- 下载进度卡片 -->
+      <div v-if="downloadProgress.active || downloadProgress.percent > 0 || downloadProgress.error || downloadProgress.statusText" class="download-card" :class="{ 'is-error': downloadProgress.error, 'is-done': updateDone }">
+        <!-- 错误状态 -->
+        <template v-if="downloadProgress.error">
+          <div class="dl-card-header">
+            <svg class="dl-icon dl-icon-error" width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M12 8v5M12 16v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span class="dl-card-title">下载失败</span>
+          </div>
+          <p class="dl-error-msg">{{ downloadProgress.error }}</p>
+          <a v-if="releaseUrl" :href="releaseUrl" target="_blank" class="dl-manual-link">手动下载 →</a>
+        </template>
 
-      <div v-if="updateDone" class="update-done-hint">
-        更新完成，请重启应用以生效。
+        <!-- 正常进度 -->
+        <template v-else>
+          <div class="dl-card-header">
+            <svg v-if="!updateDone" class="dl-icon dl-icon-downloading" width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <svg v-else class="dl-icon dl-icon-done" width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M8 12l3 3 5-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="dl-card-title">{{ updateDone ? '下载完成' : downloadProgress.statusText || '下载中' }}</span>
+            <span v-if="downloadProgress.sourceSwitchCount > 0" class="dl-source-badge">
+              已切换 {{ downloadProgress.sourceSwitchCount }} 次源
+            </span>
+          </div>
+
+          <!-- 进度条 -->
+          <div class="dl-progress-bar-wrap">
+            <div class="dl-progress-bar" :class="{ indeterminate: downloadProgress.active && downloadProgress.percent === 0 }">
+              <div class="dl-progress-fill" :style="{ width: downloadProgress.percent + '%' }" />
+            </div>
+            <span class="dl-progress-percent">{{ downloadProgress.percent }}%</span>
+          </div>
+
+          <!-- 数据行 -->
+          <div class="dl-stats">
+            <div class="dl-stat">
+              <span class="dl-stat-label">已下载</span>
+              <span class="dl-stat-value">{{ downloadProgress.downloadedMb.toFixed(1) }} MB</span>
+            </div>
+            <div class="dl-stat">
+              <span class="dl-stat-label">总大小</span>
+              <span class="dl-stat-value">{{ downloadProgress.totalMb > 0 ? downloadProgress.totalMb.toFixed(1) + ' MB' : '—' }}</span>
+            </div>
+            <div class="dl-stat">
+              <span class="dl-stat-label">速度</span>
+              <span class="dl-stat-value">{{ downloadProgress.speedMbS > 0 ? downloadProgress.speedMbS.toFixed(2) + ' MB/s' : '—' }}</span>
+            </div>
+          </div>
+
+          <!-- 完成提示 -->
+          <p v-if="updateDone && downloadProgress.filePath" class="dl-done-hint">
+            安装包已保存到：{{ downloadProgress.filePath }}
+          </p>
+          <p v-if="updateDone" class="dl-done-hint">
+            <span v-if="isElectron">正在启动安装程序，请在 UAC 弹窗中点击"是"以继续，应用将自动退出…</span>
+            <span v-else>安装程序已启动，请在 UAC 弹窗中点击"是"以继续安装。安装完成后可重新打开应用。</span>
+          </p>
+        </template>
       </div>
 
       <div class="version-actions">
@@ -594,7 +725,7 @@ async function startUpdate() {
       </div>
 
       <p v-if="!isElectron" class="hint warning">
-        当前运行在浏览器模式，请在桌面端使用一键更新功能以获得最佳体验。
+        当前运行在浏览器模式，更新下载完成后将自动启动安装程序（需 UAC 权限确认）。
       </p>
     </div>
 
@@ -793,11 +924,110 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 .changelog-title { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); padding: 9px 13px; background: var(--bg-input); border-bottom: 1px solid var(--border); }
 .changelog-content { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); padding: 11px 13px; margin: 0; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; line-height: 1.6; }
 
-.update-log-box { background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 9px 13px; margin-bottom: 11px; max-height: 200px; overflow-y: auto; }
-.log-line { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-muted); line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
-.log-link { color: var(--accent); text-decoration: underline; margin-left: 6px; white-space: nowrap; }
+/* ── 下载进度卡片 ── */
+.download-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  margin: 14px 0;
+  transition: border-color 0.2s var(--ease-out-expo);
+}
+.download-card.is-error { border-color: #ef4444; }
+.download-card.is-done { border-color: var(--success); }
 
-.update-done-hint { font-size: 11.5px; color: var(--success); font-weight: 600; margin-bottom: 11px; padding: 7px 13px; background: var(--success-soft); border: 1px solid var(--success); border-radius: var(--radius-md); }
+.dl-card-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px;
+}
+.dl-icon { flex-shrink: 0; }
+.dl-icon-downloading { color: var(--accent); animation: dl-bounce 1.2s ease-in-out infinite; }
+.dl-icon-done { color: var(--success); }
+.dl-icon-error { color: #ef4444; }
+.dl-card-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.dl-source-badge {
+  font-size: 10px; font-weight: 500;
+  color: var(--text-muted); background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  padding: 2px 7px; border-radius: 4px;
+  margin-left: auto;
+}
+
+@keyframes dl-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.dl-progress-bar-wrap {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+.dl-progress-bar {
+  flex: 1; height: 8px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.dl-progress-bar.indeterminate .dl-progress-fill {
+  width: 30% !important;
+  animation: dl-indeterminate 1.4s ease-in-out infinite;
+}
+.dl-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 4px;
+  transition: width 0.3s var(--ease-out-expo);
+}
+.is-done .dl-progress-fill {
+  background: var(--success);
+}
+.is-error .dl-progress-fill {
+  background: #ef4444;
+}
+@keyframes dl-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(333%); }
+}
+.dl-progress-percent {
+  font-size: 12px; font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  min-width: 36px; text-align: right;
+}
+
+.dl-stats {
+  display: flex; gap: 20px;
+  padding: 10px 0 0;
+}
+.dl-stat { display: flex; flex-direction: column; gap: 2px; }
+.dl-stat-label {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.dl-stat-value {
+  font-size: 13px; font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.dl-error-msg {
+  font-size: 12.5px; color: #ef4444;
+  line-height: 1.6; margin: 0 0 8px;
+  word-break: break-all;
+}
+.dl-manual-link {
+  font-size: 12px; font-weight: 600;
+  color: var(--accent); text-decoration: none;
+}
+.dl-manual-link:hover { text-decoration: underline; }
+
+.dl-done-hint {
+  font-size: 11.5px; color: var(--text-muted);
+  line-height: 1.5; margin: 8px 0 0;
+  word-break: break-all;
+}
 
 .version-actions { display: flex; gap: 9px; margin-top: 7px; }
 .btn-primary {
