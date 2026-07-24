@@ -5,7 +5,11 @@ a = Analysis(
     ['src\\dev_agent\\cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('VERSION', '.'), ('web/dist', 'web/dist')],
+    datas=[
+        ('VERSION', '.'),
+        ('web/dist', 'web/dist'),
+        ('src/dev_agent/agents', 'dev_agent/agents'),
+    ],
     hiddenimports=[
         'httpx', 'fastapi', 'uvicorn', 'packaging',
         'starlette', 'starlette.middleware.cors', 'starlette.routing',

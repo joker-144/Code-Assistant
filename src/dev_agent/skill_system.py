@@ -16,12 +16,18 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
-# skills 目录路径 — 项目根目录下的 .agent/skills/
-# 使用相对路径，确保项目移植后路径仍然有效
-_AGENT_DIR = Path(__file__).resolve().parent.parent.parent / ".agent"
+# skills 目录路径
+# - 开发模式：项目根目录下的 .agent/skills/
+# - 打包模式（PyInstaller）：用户数据目录 %LOCALAPPDATA%/DevAgent/.agent/skills/（可写，供下载技能持久化）
+if getattr(sys, 'frozen', False):
+    _AGENT_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "DevAgent" / ".agent"
+else:
+    _AGENT_DIR = Path(__file__).resolve().parent.parent.parent / ".agent"
 _SKILLS_DIR = _AGENT_DIR / "skills"
 
 

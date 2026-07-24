@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -13,7 +14,11 @@ from typing import Optional
 from dev_agent.skill_system import SkillInfo
 
 
-_AGENTS_DIR = Path(__file__).resolve().parent
+# 打包模式下从 _MEIPASS 读取内置 agents/，开发模式下从源码目录读取
+if getattr(sys, 'frozen', False):
+    _AGENTS_DIR = Path(sys._MEIPASS) / "dev_agent" / "agents"
+else:
+    _AGENTS_DIR = Path(__file__).resolve().parent
 
 
 @dataclass
