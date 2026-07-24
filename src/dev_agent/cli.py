@@ -942,12 +942,21 @@ def serve(
     """启动 API 服务（不打开浏览器，适合后端部署）
 
     port=0 时自动分配可用端口，并在 stdout 输出 PORT:<port> 供前端解析。
+    指定端口被占用时自动切换到可用端口。
     """
     import socket
     import uvicorn
 
+    # 先检测端口可用性：指定端口被占用时自动切换到随机端口
     actual_port = port
-    if port == 0:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            actual_port = s.getsockname()[1]
+        except OSError:
+            actual_port = 0
+
+    if actual_port == 0:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((host, 0))
             actual_port = s.getsockname()[1]
