@@ -212,6 +212,8 @@ const downloadProgress = ref({
   statusText: '',      // 当前状态文字
   error: '',           // 错误信息
   sourceSwitchCount: 0, // 镜像切换次数
+  phase: '',           // 当前阶段: '' | 'download' | 'install'
+  installMsg: '',      // 安装阶段提示文字
 })
 
 // 是否运行在 Electron 中
@@ -290,7 +292,7 @@ async function checkVersion() {
   hasUpdate.value = false
   changelog.value = ''
   updateDone.value = false
-  downloadProgress.value = { active: false, percent: 0, downloadedMb: 0, totalMb: 0, speedMbS: 0, statusText: '', error: '', sourceSwitchCount: 0 }
+  downloadProgress.value = { active: false, percent: 0, downloadedMb: 0, totalMb: 0, speedMbS: 0, statusText: '', error: '', sourceSwitchCount: 0, phase: '', installMsg: '' }
 
   try {
     let data
@@ -317,6 +319,7 @@ async function checkVersion() {
 function _handleProgressMsg(msg) {
   if (msg.status === 'progress') {
     downloadProgress.value.active = true
+    downloadProgress.value.phase = 'download'
     downloadProgress.value.percent = msg.percent || 0
     downloadProgress.value.downloadedMb = msg.downloaded_mb || 0
     downloadProgress.value.totalMb = msg.total_mb || 0
@@ -324,6 +327,7 @@ function _handleProgressMsg(msg) {
     downloadProgress.value.statusText = '下载中'
     downloadProgress.value.error = ''
   } else if (msg.status === 'info') {
+    downloadProgress.value.phase = 'download'
     if (msg.message && msg.message.includes('切换到下一个源')) {
       downloadProgress.value.sourceSwitchCount++
       downloadProgress.value.statusText = `切换下载源中…`
@@ -355,7 +359,7 @@ function _handleProgressMsg(msg) {
 async function startUpdate() {
   updatingVersion.value = true
   updateDone.value = false
-  downloadProgress.value = { active: true, percent: 0, downloadedMb: 0, totalMb: 0, speedMbS: 0, statusText: '准备下载…', error: '', sourceSwitchCount: 0 }
+  downloadProgress.value = { active: true, percent: 0, downloadedMb: 0, totalMb: 0, speedMbS: 0, statusText: '准备下载…', error: '', sourceSwitchCount: 0, phase: 'download', installMsg: '' }
 
   try {
     // Electron 模式：下载 → 安装 → 退出
@@ -372,15 +376,19 @@ async function startUpdate() {
         return
       }
 
-      downloadProgress.value.statusText = '安装包已下载，正在启动安装程序…'
+      // ── 安装阶段 ──
+      downloadProgress.value.statusText = '正在准备安装…'
       downloadProgress.value.percent = 100
+      downloadProgress.value.phase = 'install'
+      downloadProgress.value.installMsg = '已在 Windows 中注册更新任务，应用即将安全退出…'
 
       const installResult = await window.electronAPI.updateInstall(dlResult.file_path)
       if (!installResult.success) {
         downloadProgress.value.active = false
         downloadProgress.value.error = `安装启动失败: ${installResult.error}`
+        downloadProgress.value.phase = ''
       }
-      // 安装程序启动后，应用会自动退出
+      // 安装程序已通过 RunOnce 注册，应用退出后将由 Windows 自动完成安装
     } else {
       // 浏览器模式：SSE 流式下载
       const resp = await fetch('/api/version/download', { method: 'POST' })
@@ -645,7 +653,7 @@ async function startUpdate() {
       </div>
 
       <!-- 下载进度卡片 -->
-      <div v-if="downloadProgress.active || downloadProgress.percent > 0 || downloadProgress.error || downloadProgress.statusText" class="download-card" :class="{ 'is-error': downloadProgress.error, 'is-done': updateDone }">
+      <div v-if="downloadProgress.active || downloadProgress.percent > 0 || downloadProgress.error || downloadProgress.statusText" class="download-card" :class="{ 'is-error': downloadProgress.error, 'is-installing': downloadProgress.phase === 'install' }">
         <!-- 错误状态 -->
         <template v-if="downloadProgress.error">
           <div class="dl-card-header">
@@ -653,23 +661,58 @@ async function startUpdate() {
               <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8"/>
               <path d="M12 8v5M12 16v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            <span class="dl-card-title">下载失败</span>
+            <span class="dl-card-title">更新失败</span>
           </div>
           <p class="dl-error-msg">{{ downloadProgress.error }}</p>
           <a v-if="releaseUrl" :href="releaseUrl" target="_blank" class="dl-manual-link">手动下载 →</a>
         </template>
 
-        <!-- 正常进度 -->
+        <!-- 安装阶段 -->
+        <template v-else-if="downloadProgress.phase === 'install'">
+          <div class="dl-card-header">
+            <svg class="dl-icon dl-icon-installing" width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" stroke-dasharray="50 10"/>
+              <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="dl-card-title">正在安装更新</span>
+          </div>
+
+          <!-- 安装进度动画 -->
+          <div class="dl-progress-bar-wrap">
+            <div class="dl-progress-bar">
+              <div class="dl-progress-fill dl-progress-install" />
+            </div>
+          </div>
+
+          <div class="dl-install-steps">
+            <div class="dl-install-step">
+              <span class="dl-step-icon">✓</span>
+              <span class="dl-step-text">安装包已下载</span>
+            </div>
+            <div class="dl-install-step">
+              <span class="dl-step-icon dl-step-active">→</span>
+              <span class="dl-step-text dl-step-active">已注册 Windows 更新任务</span>
+            </div>
+            <div class="dl-install-step">
+              <span class="dl-step-icon">○</span>
+              <span class="dl-step-text">应用退出后自动静默安装</span>
+            </div>
+            <div class="dl-install-step">
+              <span class="dl-step-icon">○</span>
+              <span class="dl-step-text">安装完成后自动启动新版本</span>
+            </div>
+          </div>
+
+          <p class="dl-install-msg">{{ downloadProgress.installMsg || '应用即将关闭，安装将在后台自动完成…' }}</p>
+        </template>
+
+        <!-- 正常进度（下载中） -->
         <template v-else>
           <div class="dl-card-header">
-            <svg v-if="!updateDone" class="dl-icon dl-icon-downloading" width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <svg class="dl-icon dl-icon-downloading" width="20" height="20" viewBox="0 0 24 24" fill="none">
               <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            <svg v-else class="dl-icon dl-icon-done" width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8"/>
-              <path d="M8 12l3 3 5-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span class="dl-card-title">{{ updateDone ? '下载完成' : downloadProgress.statusText || '下载中' }}</span>
+            <span class="dl-card-title">{{ downloadProgress.statusText || '下载中' }}</span>
             <span v-if="downloadProgress.sourceSwitchCount > 0" class="dl-source-badge">
               已切换 {{ downloadProgress.sourceSwitchCount }} 次源
             </span>
@@ -698,15 +741,6 @@ async function startUpdate() {
               <span class="dl-stat-value">{{ downloadProgress.speedMbS > 0 ? downloadProgress.speedMbS.toFixed(2) + ' MB/s' : '—' }}</span>
             </div>
           </div>
-
-          <!-- 完成提示 -->
-          <p v-if="updateDone && downloadProgress.filePath" class="dl-done-hint">
-            安装包已保存到：{{ downloadProgress.filePath }}
-          </p>
-          <p v-if="updateDone" class="dl-done-hint">
-            <span v-if="isElectron">正在启动安装程序，请在 UAC 弹窗中点击"是"以继续，应用将自动退出…</span>
-            <span v-else>安装程序已启动，请在 UAC 弹窗中点击"是"以继续安装。安装完成后可重新打开应用。</span>
-          </p>
         </template>
       </div>
 
@@ -935,6 +969,7 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 }
 .download-card.is-error { border-color: #ef4444; }
 .download-card.is-done { border-color: var(--success); }
+.download-card.is-installing { border-color: var(--accent-border); background: var(--bg-surface); }
 
 .dl-card-header {
   display: flex; align-items: center; gap: 8px;
@@ -942,6 +977,7 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 }
 .dl-icon { flex-shrink: 0; }
 .dl-icon-downloading { color: var(--accent); animation: dl-bounce 1.2s ease-in-out infinite; }
+.dl-icon-installing { color: var(--accent); animation: dl-spin 2s linear infinite; }
 .dl-icon-done { color: var(--success); }
 .dl-icon-error { color: #ef4444; }
 .dl-card-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
@@ -979,6 +1015,11 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
   border-radius: 4px;
   transition: width 0.3s var(--ease-out-expo);
 }
+.dl-progress-install {
+  width: 30%;
+  animation: dl-indeterminate 1.8s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--accent), #60a5fa, var(--accent));
+}
 .is-done .dl-progress-fill {
   background: var(--success);
 }
@@ -988,6 +1029,43 @@ select:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 
 @keyframes dl-indeterminate {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(333%); }
+}
+@keyframes dl-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ── 安装步骤列表 ── */
+.dl-install-steps {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 14px;
+}
+.dl-install-step {
+  display: flex; align-items: center; gap: 8px;
+}
+.dl-step-icon {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  border-radius: 50%;
+  background: var(--bg-input); color: var(--text-faint);
+  flex-shrink: 0;
+}
+.dl-step-active {
+  background: var(--accent-soft); color: var(--accent);
+}
+.dl-step-text {
+  font-size: 12px; color: var(--text-muted);
+}
+.dl-step-text.dl-step-active {
+  color: var(--accent); font-weight: 600;
+}
+.dl-install-msg {
+  font-size: 11.5px; color: var(--text-muted);
+  background: var(--bg-card); padding: 9px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  line-height: 1.5;
 }
 .dl-progress-percent {
   font-size: 12px; font-weight: 600;

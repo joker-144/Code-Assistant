@@ -337,7 +337,7 @@ ipcMain.handle('update-download', async () => {
 
 ipcMain.handle('update-install', async (_event, filePath) => {
   try {
-    const { spawn } = require('child_process');
+    const { exec, execSync } = require('child_process');
     const fs = require('fs');
     const os = require('os');
     const path = require('path');
@@ -349,97 +349,70 @@ ipcMain.handle('update-install', async (_event, filePath) => {
 
     console.log(`[DevAgent] Starting installer: ${filePath}`);
 
-    // 1. 先杀死后端进程，释放文件锁（安装程序需要替换 dev-agent.exe）
-    killBackend();
-
-    // 2. 等待后端进程完全退出
-    await new Promise(resolve => setTimeout(resolve, 2500));
-
-    // 3. 写临时 PowerShell 脚本，负责：等待 Electron 退出 → 静默安装 → 启动新版本
+    // 1. 写临时批处理脚本
+    //    关键变化: 使用 Windows RunOnce 注册表机制保证安装程序在 app 退出后仍能执行
+    //    RunOnce 由 explorer.exe 处理，完全脱离 Electron 的作业对象（Job Object）
     const escapedPath = filePath.replace(/'/g, "''");
-    const ps1Script = `# DevAgent 更新脚本 — 由 Electron 自动生成
-$ErrorActionPreference = 'Stop'
+    // 当前运行的可执行文件路径 — 无论装在哪个目录都准确可靠
+    const currentExePath = process.execPath;
+    const escapedExePath = currentExePath.replace(/'/g, "''");
+    const batScript = `@echo off
+REM DevAgent 更新脚本 — RunOnce 自动执行（由 Windows Explorer 调度，独立于 Electron 进程树）
+title DevAgent 更新程序
+echo [DevAgent Updater] 等待应用退出...
+ping 127.0.0.1 -n 6 > nul
 
-# 等待 Electron 完全退出
-Start-Sleep -Seconds 3
+echo [DevAgent Updater] 正在静默安装...
+start /wait "" "${escapedPath}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+echo [DevAgent Updater] 安装完成（退出码: %ERRORLEVEL%）
 
-Write-Host "[DevAgent Updater] Starting silent installer: ${escapedPath}"
+REM 启动新版本（路径由 Electron 在生成脚本时直接传入，通用所有安装目录）
+start "" "${escapedExePath}"
 
-# 以管理员权限静默安装（-Verb RunAs 触发 UAC 弹窗）
-$proc = Start-Process -FilePath '${escapedPath}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Verb RunAs -PassThru -Wait
-Write-Host "[DevAgent Updater] Installer exited with code: $($proc.ExitCode)"
+REM 清理 RunOnce 注册表项（防止系统重启后重复执行）
+reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce" /v "DevAgentUpdate" /f > nul 2>&1
 
-# 安装完成后启动新版本 — 优先从注册表读取安装路径
-$appId = '{B8F3A1D2-6E5C-4A9B-8D7F-1C3E5A7B9D0F}'
-$regPaths = @(
-    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\$appId",
-    "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\$appId"
-)
-$launched = $false
-foreach ($regPath in $regPaths) {
-    try {
-        $p = Get-ItemProperty $regPath -ErrorAction SilentlyContinue
-        if ($p) {
-            # 优先用 InstallLocation，其次用 DisplayIcon
-            $exe = $null
-            if ($p.InstallLocation -and (Test-Path $p.InstallLocation)) {
-                $exe = Join-Path $p.InstallLocation 'DevAgent.exe'
-            }
-            if (-not $exe -and $p.DisplayIcon) {
-                $exe = $p.DisplayIcon -replace '"','' -replace ',-\\d+$',''
-            }
-            if ($exe -and (Test-Path $exe)) {
-                Write-Host "[DevAgent Updater] Launching: $exe"
-                Start-Process $exe
-                $launched = $true
-                break
-            }
-        }
-    } catch { }
-}
-
-# 注册表没找到，尝试常见路径
-if (-not $launched) {
-    $candidates = @(
-        'C:\\Program Files\\DevAgent\\DevAgent.exe',
-        'C:\\Program Files (x86)\\DevAgent\\DevAgent.exe',
-        'D:\\Software\\DevAgent\\DevAgent.exe'
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path $c) {
-            Write-Host "[DevAgent Updater] Launching: $c"
-            Start-Process $c
-            break
-        }
-    }
-}
-
-# 自清理
-Remove-Item $MyInvocation.MyCommand.Path -Force
+REM 自清理
+del "%~f0" > nul 2>&1
 `;
 
-    const ps1Path = path.join(os.tmpdir(), 'devagent_updater.ps1');
-    fs.writeFileSync(ps1Path, ps1Script, 'utf-8');
+    const batPath = path.join(os.tmpdir(), 'devagent_updater.bat');
+    fs.writeFileSync(batPath, batScript, 'utf-8');
 
-    // 4. 启动 PowerShell 脚本（独立进程，不随 Electron 退出而终止）
-    //    不使用 windowsHide，确保 UAC 弹窗能正常显示
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-ExecutionPolicy', 'Bypass',
-      '-File', ps1Path,
-    ], {
-      detached: true,
-      stdio: 'ignore',
-    });
+    // 2. 注册 RunOnce（▸ 主保障 ◂）
+    //    RunOnce 由 Windows Explorer（explorer.exe）在用户会话中处理，
+    //    完全独立于 Electron 的作业对象。即使 app.quit() 立即回收 Job Object，
+    //    RunOnce 仍会在应用退出后正常执行。
+    try {
+      execSync(
+        `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce" /v "DevAgentUpdate" /t REG_SZ /d "\"${batPath}\"" /f`,
+        { stdio: 'ignore', timeout: 5000 }
+      );
+      console.log('[DevAgent] RunOnce registered for update');
+    } catch (regErr) {
+      console.warn('[DevAgent] Failed to register RunOnce:', regErr.message);
+    }
 
-    child.unref();
+    // 3. 尝试直接启动（快速路径 — 可能在 app.quit 前有机会创建新窗口）
+    try {
+      const child = exec(
+        `start "DevAgent 更新程序" /MIN "${batPath}"`,
+        { shell: 'cmd.exe', windowsHide: false }
+      );
+      child.unref();
+    } catch (e) {
+      console.warn('[DevAgent] Direct launch failed:', e.message);
+    }
 
-    console.log('[DevAgent] Updater script launched, quitting app...');
+    // 4. 先杀死后端进程，释放文件锁
+    killBackend();
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // 5. 退出 Electron（脚本会等待 3 秒后才启动安装程序，确保 Electron 已退出）
-    setTimeout(() => {
-      app.quit();
-    }, 500);
+    console.log('[DevAgent] Quitting app, RunOnce will complete the update...');
+
+    // 5. 退出 Electron
+    //    RunOnce 注册表项确保 bat 脚本在应用退出后仍会被执行
+    app.quit();
 
     return { success: true };
   } catch (e) {
