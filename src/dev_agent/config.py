@@ -5,11 +5,22 @@ DevAgent 配置系统
 """
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 打包模式下 .env 和数据文件存放在用户数据目录
+if getattr(sys, 'frozen', False):
+    _DATA_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "DevAgent" / "data"
+else:
+    _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
+# 确保 .env 文件路径在打包模式下也有效
+_ENV_FILE = _DATA_DIR / ".env" if getattr(sys, 'frozen', False) else ".env"
 
 
 class AgentConfig(BaseSettings):
@@ -20,7 +31,7 @@ class AgentConfig(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -36,7 +47,11 @@ class AgentConfig(BaseSettings):
     llm_chat_max_tool_rounds: int = Field(default=12, validation_alias="LLM_CHAT_MAX_TOOL_ROUNDS")
 
     # ── 记忆系统配置 ──
-    memory_sqlite_path: str = Field(default="data/memory.db", validation_alias="MEMORY_SQLITE_PATH")
+    # 打包模式下使用绝对路径指向用户数据目录
+    memory_sqlite_path: str = Field(
+        default_factory=lambda: str(_DATA_DIR / "memory.db"),
+        validation_alias="MEMORY_SQLITE_PATH",
+    )
 
     # ── Embedding 配置（LLM_EMBEDDING_* 前缀）──
     # 本地 sentence-transformers 模型（all-MiniLM-L6-v2，384 维，约 80MB）

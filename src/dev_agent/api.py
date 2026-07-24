@@ -749,7 +749,14 @@ async def list_models(
 
 # ── 用户配置持久化接口 ──
 
-_USER_SETTINGS_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "settings.json"
+# 打包模式下使用用户数据目录（可写），开发模式下使用项目目录
+if getattr(sys, 'frozen', False):
+    import os
+    _DATA_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "DevAgent" / "data"
+else:
+    _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
+_USER_SETTINGS_FILE = _DATA_DIR / "settings.json"
 
 
 def _load_user_settings() -> dict:
@@ -773,10 +780,19 @@ _DOTENV_KEY_MAP = {
 
 def _save_to_dotenv(data: dict) -> None:
     """将前端用户配置写入 .env 文件，确保后端始终使用前端配置"""
-    dotenv_path = Path(".env").resolve()
+    # 打包模式下 .env 写入用户数据目录；开发模式下写入当前工作目录
+    if getattr(sys, 'frozen', False):
+        dotenv_path = _DATA_DIR / ".env"
+    else:
+        dotenv_path = Path(".env").resolve()
+
+    # 确保目录存在
+    dotenv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 如果 .env 不存在，创建空文件
     if not dotenv_path.exists():
-        print(f"[WARN] .env 文件不存在: {dotenv_path}")
-        return
+        dotenv_path.write_text("", encoding="utf-8")
+        print(f"[INFO] 已创建 .env: {dotenv_path}")
 
     # 从 data 中提取值，映射为 .env 变量
     env_values: dict[str, str] = {}
