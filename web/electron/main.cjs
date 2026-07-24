@@ -352,11 +352,11 @@ Start-Sleep -Seconds 3
 
 Write-Host "[DevAgent Updater] Starting silent installer: ${escapedPath}"
 
-# 以管理员权限静默安装
+# 以管理员权限静默安装（-Verb RunAs 触发 UAC 弹窗）
 $proc = Start-Process -FilePath '${escapedPath}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Verb RunAs -PassThru -Wait
 Write-Host "[DevAgent Updater] Installer exited with code: $($proc.ExitCode)"
 
-# 安装完成后启动新版本
+# 安装完成后启动新版本 — 优先从注册表读取安装路径
 $appId = '{B8F3A1D2-6E5C-4A9B-8D7F-1C3E5A7B9D0F}'
 $regPaths = @(
     "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\$appId",
@@ -366,9 +366,16 @@ $launched = $false
 foreach ($regPath in $regPaths) {
     try {
         $p = Get-ItemProperty $regPath -ErrorAction SilentlyContinue
-        if ($p -and $p.DisplayIcon) {
-            $exe = $p.DisplayIcon -replace '"','' -replace ',-\\d+$',''
-            if (Test-Path $exe) {
+        if ($p) {
+            # 优先用 InstallLocation，其次用 DisplayIcon
+            $exe = $null
+            if ($p.InstallLocation -and (Test-Path $p.InstallLocation)) {
+                $exe = Join-Path $p.InstallLocation 'DevAgent.exe'
+            }
+            if (-not $exe -and $p.DisplayIcon) {
+                $exe = $p.DisplayIcon -replace '"','' -replace ',-\\d+$',''
+            }
+            if ($exe -and (Test-Path $exe)) {
                 Write-Host "[DevAgent Updater] Launching: $exe"
                 Start-Process $exe
                 $launched = $true
@@ -382,7 +389,8 @@ foreach ($regPath in $regPaths) {
 if (-not $launched) {
     $candidates = @(
         'C:\\Program Files\\DevAgent\\DevAgent.exe',
-        'C:\\Program Files (x86)\\DevAgent\\DevAgent.exe'
+        'C:\\Program Files (x86)\\DevAgent\\DevAgent.exe',
+        'D:\\Software\\DevAgent\\DevAgent.exe'
     )
     foreach ($c in $candidates) {
         if (Test-Path $c) {
@@ -401,6 +409,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
     fs.writeFileSync(ps1Path, ps1Script, 'utf-8');
 
     // 4. 启动 PowerShell 脚本（独立进程，不随 Electron 退出而终止）
+    //    不使用 windowsHide，确保 UAC 弹窗能正常显示
     const child = spawn('powershell.exe', [
       '-NoProfile',
       '-ExecutionPolicy', 'Bypass',
@@ -408,7 +417,6 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
     ], {
       detached: true,
       stdio: 'ignore',
-      windowsHide: true,
     });
 
     child.unref();
